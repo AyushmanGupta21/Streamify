@@ -50,11 +50,12 @@ export async function signup(req, res) {
       expiresIn: "7d",
     });
 
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("jwt", token, {
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      httpOnly: true, // prevent XSS attacks,
-      sameSite: "strict", // prevent CSRF attacks
-      secure: process.env.NODE_ENV === "production",
+      httpOnly: true, // prevent XSS attacks
+      sameSite: isProduction ? "none" : "lax", // "none" required for cross-origin in production
+      secure: isProduction, // must be true when sameSite="none"
     });
 
     res.status(201).json({ success: true, user: newUser });
@@ -82,11 +83,12 @@ export async function login(req, res) {
       expiresIn: "7d",
     });
 
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("jwt", token, {
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      httpOnly: true, // prevent XSS attacks,
-      sameSite: "strict", // prevent CSRF attacks
-      secure: process.env.NODE_ENV === "production",
+      httpOnly: true, // prevent XSS attacks
+      sameSite: isProduction ? "none" : "lax", // "none" required for cross-origin in production
+      secure: isProduction, // must be true when sameSite="none"
     });
 
     res.status(200).json({ success: true, user });

@@ -1,0 +1,41 @@
+# render.yaml — Deploy both backend + frontend on Render.com with one click
+# https://render.com/docs/blueprint-spec
+
+services:
+  # ─── BACKEND (Web Service) ────────────────────────────────────────────────
+  - type: web
+    name: videomeet-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGO_URI
+        sync: false          # you'll paste this in Render dashboard
+      - key: STEAM_API_KEY
+        sync: false
+      - key: STEAM_API_SECRET
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false          # paste your Render frontend URL after first deploy
+
+  # ─── FRONTEND (Static Site) ───────────────────────────────────────────────
+  - type: web
+    name: videomeet-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_STREAM_API_KEY
+        sync: false          # you'll paste this in Render dashboard
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html  # enables React Router client-side routing
