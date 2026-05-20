@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 5001;
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "https://streamhoe.vercel.app", // production frontend
   process.env.FRONTEND_URL,
 ].filter(Boolean).map((origin) => origin.replace(/\/$/, "")); // remove trailing slashes
 
