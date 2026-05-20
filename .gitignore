@@ -29,8 +29,3 @@ dist-ssr
 .env.production
 backend/.env
 frontend/.env
-
-# Keep example files tracked
-!.env.example
-!backend/.env.example
-!frontend/.env.example
