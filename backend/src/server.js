@@ -12,8 +12,6 @@ import { connectDB } from "./lib/db.js";
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-const __dirname = path.resolve();
-
 const allowedOrigins = [
   "http://localhost:5173",
   process.env.FRONTEND_URL,
