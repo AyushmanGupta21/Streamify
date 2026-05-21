@@ -3,6 +3,7 @@ import useAuthUser from "../hooks/useAuthUser";
 import { BellIcon, LogOutIcon, ShipWheelIcon, UserIcon } from "lucide-react";
 import ThemeSelector from "./ThemeSelector";
 import useLogout from "../hooks/useLogout";
+import useNotificationCount from "../hooks/useNotificationCount";
 
 const Navbar = () => {
   const { authUser } = useAuthUser();
@@ -10,6 +11,7 @@ const Navbar = () => {
   const isChatPage = location.pathname?.startsWith("/chat");
 
   const { logoutMutation, isPending } = useLogout();
+  const notifCount = useNotificationCount();
 
   return (
     <nav className="bg-base-200 border-b border-base-300 sticky top-0 z-30 h-16 flex items-center">
@@ -28,11 +30,18 @@ const Navbar = () => {
           )}
 
           <div className="flex items-center gap-3 sm:gap-4 ml-auto">
-            {/* Notifications */}
+            {/* Notifications bell with badge */}
             <Link to="/notifications">
-              <button className="btn btn-ghost btn-circle" title="Notifications">
-                <BellIcon className="h-6 w-6 text-base-content opacity-70" />
-              </button>
+              <div className="indicator">
+                {notifCount > 0 && (
+                  <span className="indicator-item badge badge-error badge-sm text-white font-bold min-w-[1.1rem] h-[1.1rem] text-[10px]">
+                    {notifCount > 9 ? "9+" : notifCount}
+                  </span>
+                )}
+                <button className="btn btn-ghost btn-circle" title="Notifications">
+                  <BellIcon className="h-6 w-6 text-base-content opacity-70" />
+                </button>
+              </div>
             </Link>
           </div>
 

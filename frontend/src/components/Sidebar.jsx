@@ -1,11 +1,13 @@
 import { Link, useLocation } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
 import { BellIcon, HomeIcon, ShipWheelIcon, UserIcon, UsersIcon } from "lucide-react";
+import useNotificationCount from "../hooks/useNotificationCount";
 
 const Sidebar = () => {
   const { authUser } = useAuthUser();
   const location = useLocation();
   const currentPath = location.pathname;
+  const notifCount = useNotificationCount();
 
   return (
     <aside className="w-64 bg-base-200 border-r border-base-300 hidden lg:flex flex-col h-screen sticky top-0">
@@ -45,7 +47,14 @@ const Sidebar = () => {
             currentPath === "/notifications" ? "btn-active" : ""
           }`}
         >
-          <BellIcon className="size-5 text-base-content opacity-70" />
+          <div className="indicator">
+            {notifCount > 0 && (
+              <span className="indicator-item badge badge-error badge-xs text-white font-bold" style={{ fontSize: "9px", minWidth: "1rem", height: "1rem" }}>
+                {notifCount > 9 ? "9+" : notifCount}
+              </span>
+            )}
+            <BellIcon className="size-5 text-base-content opacity-70" />
+          </div>
           <span>Notifications</span>
         </Link>
 
