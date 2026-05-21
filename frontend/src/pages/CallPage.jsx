@@ -250,7 +250,7 @@ const CallContent = () => {
       <div
         ref={containerRef}
         className="flex flex-col bg-gray-950 text-white"
-        style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
+        style={{ width: "100vw", height: "calc(var(--dvh, 1vh) * 100)", overflow: "hidden" }}
       >
         {/* ── Screen share fills everything above the control bar ── */}
         <div className="relative flex-1 w-full overflow-hidden">
@@ -300,7 +300,7 @@ const CallContent = () => {
     <div
       ref={containerRef}
       className="flex flex-col bg-gray-950 text-white"
-      style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
+      style={{ width: "100vw", height: "calc(var(--dvh, 1vh) * 100)", overflow: "hidden" }}
     >
       {/* ── Main video area ── */}
       <div className="relative flex-1 overflow-hidden" style={{ padding: 8 }}>

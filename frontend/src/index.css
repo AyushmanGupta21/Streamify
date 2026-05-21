@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Mobile viewport height fix ─────────────────────────────
+   100vh on mobile Chrome includes the browser chrome (address bar),
+   causing a gap. We set --dvh via JS and fall back to dvh / vh. */
+:root {
+  --dvh: 1vh; /* overridden by JS in main.jsx */
+}
+
+/* ─── Stream Video SDK overrides ──────────────────────────────
+   Force video participant views to fill their containers fully. */
+.str-video__participant-view,
+.str-video__participant-view video,
+.str-video__screen-share-overlay,
+[class*="str-video__participant"] {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  object-fit: cover !important;
+}
+
+/* Screen share track should use 'contain' to show full screen without cropping */
+.str-video__screen-share-overlay video,
+[data-track-type="screenShareTrack"] video {
+  object-fit: contain !important;
+  background: #000;
+}
+
+/* ─── Safe area insets (notch / home bar) ─────────────────── */
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─── Chat channel styles ─────────────────────────────────── */
 .str-chat__channel {
   display: flex;
   align-items: center;
