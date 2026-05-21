@@ -225,8 +225,9 @@ const CallContent = () => {
         className="flex flex-col bg-gray-950 text-white"
         style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
       >
-        {/* ── Main area: screen share — clean, no overlays ── */}
+        {/* ── Screen share fills everything above the control bar ── */}
         <div className="relative flex-1 w-full overflow-hidden">
+          {/* Screen share — full area, no overlay */}
           <div className="absolute inset-0">
             <ParticipantView
               participant={screenSharer}
@@ -235,25 +236,15 @@ const CallContent = () => {
               style={{ width: "100%", height: "100%" }}
             />
           </div>
-        </div>
 
-        {/* ── Participant thumbnail strip ── */}
-        <div
-          className="flex gap-2 px-3 py-2 bg-gray-900 border-t border-white/10 overflow-x-auto"
-          style={{ minHeight: 112, maxHeight: 128, flexShrink: 0 }}
-        >
-          {stripParticipants.map((p) => (
-            <div
+          {/* Floating draggable PiPs — one per participant (excluding the sharer) */}
+          {stripParticipants.map((p, idx) => (
+            <DraggablePip
               key={p.sessionId}
-              className="flex-shrink-0 rounded-xl overflow-hidden relative border border-white/10"
-              style={{ width: 160, height: 96 }}
-            >
-              <ParticipantView
-                participant={p}
-                trackType="videoTrack"
-                style={{ width: "100%", height: "100%" }}
-              />
-            </div>
+              participant={p}
+              initialRight={16}
+              initialBottom={80 + idx * 160}
+            />
           ))}
         </div>
 
@@ -374,6 +365,94 @@ const CallContent = () => {
         onToggleScreen={toggleScreenShare}
         onLeave={handleLeave}
       />
+    </div>
+  );
+};
+
+/* ─── draggable pip for participants during screen share ─────── */
+const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) => {
+  const [pos, setPos] = useState({ right: initialRight, bottom: initialBottom });
+  const [size, setSize] = useState({ w: 180, h: 120 });
+  const ref = useRef(null);
+  const isDragging = useRef(false);
+  const dragOrigin = useRef({ mx: 0, my: 0, right: 0, bottom: 0 });
+  const isResizing = useRef(false);
+  const resizeOrigin = useRef({ mx: 0, my: 0, w: 0, h: 0 });
+
+  const onPointerDown = (e) => {
+    if (e.target.closest("[data-resize]")) return;
+    isDragging.current = true;
+    dragOrigin.current = { mx: e.clientX, my: e.clientY, right: pos.right, bottom: pos.bottom };
+    ref.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e) => {
+    if (isDragging.current) {
+      const dx = e.clientX - dragOrigin.current.mx;
+      const dy = e.clientY - dragOrigin.current.my;
+      setPos({
+        right: Math.max(0, dragOrigin.current.right - dx),
+        bottom: Math.max(0, dragOrigin.current.bottom - dy),
+      });
+    } else if (isResizing.current) {
+      const dw = e.clientX - resizeOrigin.current.mx;
+      const dh = e.clientY - resizeOrigin.current.my;
+      setSize({
+        w: Math.max(120, Math.min(400, resizeOrigin.current.w + dw)),
+        h: Math.max(80, Math.min(280, resizeOrigin.current.h + dh)),
+      });
+    }
+  };
+
+  const onPointerUp = () => {
+    isDragging.current = false;
+    isResizing.current = false;
+  };
+
+  const onResizeDown = (e) => {
+    isResizing.current = true;
+    resizeOrigin.current = { mx: e.clientX, my: e.clientY, w: size.w, h: size.h };
+    ref.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return (
+    <div
+      ref={ref}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{
+        position: "absolute",
+        right: pos.right,
+        bottom: pos.bottom,
+        width: size.w,
+        height: size.h,
+        zIndex: 30,
+        touchAction: "none",
+        userSelect: "none",
+      }}
+      className="rounded-xl overflow-hidden border border-white/20 shadow-2xl cursor-grab active:cursor-grabbing"
+    >
+      <ParticipantView
+        participant={participant}
+        trackType="videoTrack"
+        ParticipantViewUI={NoOverlay}
+        style={{ width: "100%", height: "100%" }}
+      />
+      {/* Resize handle */}
+      <div
+        data-resize="true"
+        onPointerDown={onResizeDown}
+        className="absolute bottom-0 right-0 w-5 h-5 flex items-end justify-end cursor-nwse-resize"
+        style={{ touchAction: "none" }}
+      >
+        <svg viewBox="0 0 10 10" className="w-3 h-3" fill="rgba(255,255,255,0.3)">
+          <path d="M0 10 L10 0 L10 10Z" />
+        </svg>
+      </div>
     </div>
   );
 };
