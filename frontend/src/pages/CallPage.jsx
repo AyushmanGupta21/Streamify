@@ -31,6 +31,9 @@ import {
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
+/** Renders nothing — used to suppress Stream SDK's default participant overlays */
+const NoOverlay = () => null;
+
 /* ─── helpers ───────────────────────────────────────────────── */
 
 /** True if a participant is publishing their screen share track */
@@ -228,6 +231,7 @@ const CallContent = () => {
             <ParticipantView
               participant={screenSharer}
               trackType="screenShareTrack"
+              ParticipantViewUI={NoOverlay}
               style={{ width: "100%", height: "100%" }}
             />
           </div>
