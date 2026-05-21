@@ -27,13 +27,15 @@ const ChatPage = () => {
   const [chatClient, setChatClient] = useState(null);
   const [channel, setChannel] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [chatError, setChatError] = useState(null);
 
   const { authUser } = useAuthUser();
 
   const { data: tokenData } = useQuery({
     queryKey: ["streamToken"],
     queryFn: getStreamToken,
-    enabled: !!authUser, // this will run only when authUser is available
+    enabled: !!authUser,
+    retry: 2,
   });
 
   useEffect(() => {
@@ -69,9 +71,11 @@ const ChatPage = () => {
 
         setChatClient(client);
         setChannel(currChannel);
+        setChatError(null);
       } catch (error) {
         console.error("Error initializing chat:", error);
-        toast.error("Could not connect to chat. Please try again.");
+        setChatError("Could not connect to chat. The server may be waking up — please retry.");
+        toast.error("Could not connect to chat.");
       } finally {
         setLoading(false);
       }
@@ -92,7 +96,24 @@ const ChatPage = () => {
     }
   };
 
-  if (loading || !chatClient || !channel) return <ChatLoader />;
+  if (loading) return <ChatLoader />;
+
+  if (chatError || !chatClient || !channel) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-4 px-6 text-center">
+        <p className="text-error font-semibold text-lg">Connection Failed</p>
+        <p className="text-base-content/60 text-sm max-w-sm">
+          {chatError || "Could not connect to chat."}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="btn btn-primary btn-sm"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     /* h-[calc(100vh-4rem)] = full viewport minus navbar (4rem = 64px)

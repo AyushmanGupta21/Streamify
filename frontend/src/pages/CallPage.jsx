@@ -67,16 +67,41 @@ const FALLBACK_AVATAR =
 /* ─── main page ─────────────────────────────────────────────── */
 const CallPage = () => {
   const { id: callId } = useParams();
+  const navigate = useNavigate();
   const [client, setClient] = useState(null);
   const [call, setCall] = useState(null);
   const [isConnecting, setIsConnecting] = useState(true);
+  const [connectError, setConnectError] = useState(null);
   const { authUser, isLoading } = useAuthUser();
 
   const { data: tokenData } = useQuery({
     queryKey: ["streamToken"],
     queryFn: getStreamToken,
     enabled: !!authUser,
+    retry: 2,
   });
+
+  // If auth check is done and user is not logged in → redirect to login
+  useEffect(() => {
+    if (!isLoading && !authUser) {
+      navigate("/login");
+    }
+  }, [isLoading, authUser, navigate]);
+
+  // 20-second timeout — breaks infinite loading if backend is slow/down
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsConnecting((prev) => {
+        if (prev) {
+          setConnectError(
+            "Connection timed out. The backend may be waking up (Render free tier takes ~30s). Please refresh."
+          );
+        }
+        return false;
+      });
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const initCall = async () => {
@@ -95,9 +120,11 @@ const CallPage = () => {
         await callInstance.join({ create: true });
         setClient(videoClient);
         setCall(callInstance);
+        setConnectError(null);
       } catch (err) {
         console.error("Error joining call:", err);
-        toast.error("Could not join the call. Please try again.");
+        setConnectError("Could not join the call. Please try again.");
+        toast.error("Could not join the call.");
       } finally {
         setIsConnecting(false);
       }
@@ -105,12 +132,37 @@ const CallPage = () => {
     initCall();
   }, [tokenData, authUser, callId]);
 
-  if (isLoading || isConnecting) return <PageLoader />;
-
-  if (!client || !call) {
+  if (isLoading || isConnecting) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-950 text-white">
-        <p>Could not initialize call. Please refresh or try again later.</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white gap-4">
+        <span className="loading loading-spinner loading-lg text-primary" />
+        <p className="text-sm text-white/60">Connecting to call...</p>
+        <p className="text-xs text-white/30 max-w-xs text-center">
+          If this takes longer than usual, the server may be warming up. Please wait.
+        </p>
+      </div>
+    );
+  }
+
+  if (connectError || !client || !call) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-white gap-4 px-6 text-center">
+        <p className="text-red-400 font-semibold text-lg">Connection Failed</p>
+        <p className="text-white/60 text-sm max-w-sm">
+          {connectError || "Could not initialize call."}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="btn btn-primary btn-sm mt-2"
+        >
+          Retry
+        </button>
+        <button
+          onClick={() => navigate("/")}
+          className="btn btn-ghost btn-sm text-white/50"
+        >
+          Go Home
+        </button>
       </div>
     );
   }
