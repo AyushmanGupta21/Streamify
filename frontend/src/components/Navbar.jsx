@@ -30,8 +30,8 @@ const Navbar = () => {
           )}
 
           <div className="flex items-center gap-3 sm:gap-4 ml-auto">
-            {/* Notifications bell with badge */}
-            <Link to="/notifications">
+            {/* Notifications bell — hidden on mobile (MobileNav handles it) */}
+            <Link to="/notifications" className="hidden lg:block">
               <div className="indicator">
                 {notifCount > 0 && (
                   <span className="indicator-item badge badge-error badge-sm text-white font-bold min-w-[1.1rem] h-[1.1rem] text-[10px]">

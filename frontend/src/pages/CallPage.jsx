@@ -27,12 +27,32 @@ import {
   PhoneOffIcon,
   MonitorUpIcon,
   MonitorXIcon,
+  Maximize2Icon,
+  Minimize2Icon,
 } from "lucide-react";
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
 /** Renders nothing — used to suppress Stream SDK's default participant overlays */
 const NoOverlay = () => null;
+
+/** Fullscreen toggle hook */
+const useFullscreen = (ref) => {
+  const [isFull, setIsFull] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFull(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggle = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      (ref.current || document.documentElement).requestFullscreen?.();
+    }
+  };
+  return { isFull, toggle };
+};
 
 /* ─── helpers ───────────────────────────────────────────────── */
 
@@ -141,13 +161,19 @@ const CallContent = () => {
   );
 
   // ── PiP drag/resize state ──
-  const [pipPos, setPipPos] = useState({ right: 16, bottom: 80 });
-  const [pipSize, setPipSize] = useState({ w: 200, h: 140 });
+  // smaller default on mobile (detect via window width at mount)
+  const isMobile = window.innerWidth < 640;
+  const [pipPos, setPipPos] = useState({ right: 12, bottom: 80 });
+  const [pipSize, setPipSize] = useState({ w: isMobile ? 120 : 200, h: isMobile ? 80 : 140 });
   const pipRef = useRef(null);
+  const containerRef = useRef(null);
   const isDragging = useRef(false);
   const dragOrigin = useRef({ mx: 0, my: 0, right: 0, bottom: 0 });
   const isResizing = useRef(false);
   const resizeOrigin = useRef({ mx: 0, my: 0, w: 0, h: 0 });
+
+  // ── Fullscreen ──
+  const { isFull, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
   const onPipPointerDown = useCallback((e) => {
     if (e.target.closest("[data-resize]")) return; // let resize handle it
@@ -222,6 +248,7 @@ const CallContent = () => {
   if (screenSharer) {
     return (
       <div
+        ref={containerRef}
         className="flex flex-col bg-gray-950 text-white"
         style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
       >
@@ -253,9 +280,11 @@ const CallContent = () => {
           micMuted={micMuted}
           camMuted={camMuted}
           isScreenSharing={isLocalSharing}
+          isFull={isFull}
           onToggleMic={() => microphone.toggle()}
           onToggleCam={() => camera.toggle()}
           onToggleScreen={toggleScreenShare}
+          onToggleFullscreen={toggleFullscreen}
           onLeave={handleLeave}
         />
       </div>
@@ -269,6 +298,7 @@ const CallContent = () => {
 
   return (
     <div
+      ref={containerRef}
       className="flex flex-col bg-gray-950 text-white"
       style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
     >
@@ -360,9 +390,11 @@ const CallContent = () => {
         micMuted={micMuted}
         camMuted={camMuted}
         isScreenSharing={isLocalSharing}
+        isFull={isFull}
         onToggleMic={() => microphone.toggle()}
         onToggleCam={() => camera.toggle()}
         onToggleScreen={toggleScreenShare}
+        onToggleFullscreen={toggleFullscreen}
         onLeave={handleLeave}
       />
     </div>
@@ -462,20 +494,22 @@ const CallBar = ({
   micMuted,
   camMuted,
   isScreenSharing,
+  isFull,
   onToggleMic,
   onToggleCam,
   onToggleScreen,
+  onToggleFullscreen,
   onLeave,
 }) => {
   const btnBase =
-    "flex items-center justify-center w-11 h-11 rounded-full transition-colors focus:outline-none";
+    "flex items-center justify-center rounded-full transition-colors focus:outline-none w-10 h-10 sm:w-11 sm:h-11";
   const ghostBtn = `${btnBase} bg-white/10 hover:bg-white/20 text-white`;
   const activeBtn = `${btnBase} bg-red-600 hover:bg-red-700 text-white`;
   const warnBtn = `${btnBase} bg-yellow-500 hover:bg-yellow-600 text-white`;
 
   return (
     <div
-      className="flex items-center justify-center gap-4 border-t border-white/10 bg-gray-900"
+      className="flex items-center justify-center gap-3 sm:gap-4 border-t border-white/10 bg-gray-900"
       style={{ height: 68, flexShrink: 0 }}
     >
       <button
@@ -494,9 +528,10 @@ const CallBar = ({
         {camMuted ? <VideoOffIcon className="size-5" /> : <VideoIcon className="size-5" />}
       </button>
 
+      {/* Screen share — hide on mobile (not supported on most mobile browsers) */}
       <button
         onClick={onToggleScreen}
-        className={isScreenSharing ? warnBtn : ghostBtn}
+        className={`${isScreenSharing ? warnBtn : ghostBtn} hidden sm:flex`}
         title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
       >
         {isScreenSharing ? (
