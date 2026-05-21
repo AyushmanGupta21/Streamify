@@ -27,7 +27,6 @@ import {
   PhoneOffIcon,
   MonitorUpIcon,
   MonitorXIcon,
-  GripIcon,
 } from "lucide-react";
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
@@ -223,9 +222,8 @@ const CallContent = () => {
         className="flex flex-col bg-gray-950 text-white"
         style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
       >
-        {/* ── Main area: screen share ── */}
+        {/* ── Main area: screen share — clean, no overlays ── */}
         <div className="relative flex-1 w-full overflow-hidden">
-          {/* The actual screen share video — always rendered */}
           <div className="absolute inset-0">
             <ParticipantView
               participant={screenSharer}
@@ -233,21 +231,6 @@ const CallContent = () => {
               style={{ width: "100%", height: "100%" }}
             />
           </div>
-
-          {/* Sharer-only: small floating stop button — no overlay blocking the view */}
-          {isLocalSharing && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
-              <MonitorUpIcon className="size-4 text-primary" />
-              <span className="text-xs text-white font-medium">Presenting</span>
-              <button
-                onClick={toggleScreenShare}
-                className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full transition-colors font-semibold ml-1"
-              >
-                <MonitorXIcon className="size-3.5" />
-                Stop
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ── Participant thumbnail strip ── */}
@@ -255,27 +238,19 @@ const CallContent = () => {
           className="flex gap-2 px-3 py-2 bg-gray-900 border-t border-white/10 overflow-x-auto"
           style={{ minHeight: 112, maxHeight: 128, flexShrink: 0 }}
         >
-          {stripParticipants.map((p) => {
-            const isLocal = p.sessionId === localParticipant?.sessionId;
-            return (
-              <div
-                key={p.sessionId}
-                className="flex-shrink-0 rounded-xl overflow-hidden relative border border-white/10"
-                style={{ width: 160, height: 96 }}
-              >
-                <ParticipantView
-                  participant={p}
-                  trackType="videoTrack"
-                  style={{ width: "100%", height: "100%" }}
-                />
-                {isLocal && (
-                  <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white">
-                    You
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          {stripParticipants.map((p) => (
+            <div
+              key={p.sessionId}
+              className="flex-shrink-0 rounded-xl overflow-hidden relative border border-white/10"
+              style={{ width: 160, height: 96 }}
+            >
+              <ParticipantView
+                participant={p}
+                trackType="videoTrack"
+                style={{ width: "100%", height: "100%" }}
+              />
+            </div>
+          ))}
         </div>
 
         {/* ── Controls ── */}
@@ -370,22 +345,14 @@ const CallContent = () => {
               style={{ width: "100%", height: "100%" }}
             />
 
-            {/* Drag hint */}
-            <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              <GripIcon className="size-4 text-white drop-shadow" />
-            </div>
-            <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white pointer-events-none">
-              You
-            </span>
-
-            {/* Resize corner */}
+            {/* Resize corner — only UI allowed */}
             <div
               data-resize="true"
               onPointerDown={onResizePointerDown}
               className="absolute bottom-0 right-0 w-5 h-5 flex items-end justify-end cursor-nwse-resize"
               style={{ touchAction: "none" }}
             >
-              <svg viewBox="0 0 10 10" className="w-3 h-3" fill="rgba(255,255,255,0.5)">
+              <svg viewBox="0 0 10 10" className="w-3 h-3" fill="rgba(255,255,255,0.3)">
                 <path d="M0 10 L10 0 L10 10Z" />
               </svg>
             </div>
