@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getUserFriends,
   lookupUserByEmail,
-  removeFriend,
   sendFriendRequestByEmail,
 } from "../lib/api";
 import toast from "react-hot-toast";
@@ -16,7 +15,6 @@ import {
   MailIcon,
   SearchIcon,
   SendIcon,
-  UserMinusIcon,
   UserPlusIcon,
   UsersIcon,
   XCircleIcon,
@@ -28,26 +26,18 @@ const FALLBACK_AVATAR =
 const FriendsPage = () => {
   const queryClient = useQueryClient();
 
-  // ── email add friend state ──
   const [email, setEmail] = useState("");
-  const [lookupResult, setLookupResult] = useState(null); // null | { user } | "not_found" | "loading"
+  const [lookupResult, setLookupResult] = useState(null);
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
   const [showDropdown, setShowDropdown] = useState(false);
-
-  // ── friends list state ──
   const [searchQuery, setSearchQuery] = useState("");
-  const [removingId, setRemovingId] = useState(null);
-
-  // ── confirm remove modal state ──
-  const [confirmRemove, setConfirmRemove] = useState(null); // { id, name }
 
   const { data: friends = [], isLoading } = useQuery({
     queryKey: ["friends"],
     queryFn: getUserFriends,
   });
 
-  // ── Send friend request mutation ──
   const { mutate: sendRequestMutation, isPending: isSending } = useMutation({
     mutationFn: sendFriendRequestByEmail,
     onSuccess: (data) => {
@@ -62,39 +52,21 @@ const FriendsPage = () => {
     },
   });
 
-  // ── Remove friend mutation ──
-  const { mutate: removeFriendMutation } = useMutation({
-    mutationFn: removeFriend,
-    onSuccess: (_, friendId) => {
-      toast.success(`${confirmRemove?.name || "Friend"} removed from your friends list`);
-      setRemovingId(null);
-      setConfirmRemove(null);
-      queryClient.invalidateQueries({ queryKey: ["friends"] });
-    },
-    onError: () => {
-      toast.error("Failed to remove friend");
-      setRemovingId(null);
-    },
-  });
-
-  // ── Debounced email lookup ──
+  // Debounced email lookup
   useEffect(() => {
     const trimmed = email.trim();
 
-    // Reset if empty or not a plausible email fragment
     if (!trimmed || trimmed.length < 3) {
       setLookupResult(null);
       setShowDropdown(false);
       return;
     }
 
-    // Show loading immediately
     setLookupResult("loading");
     setShowDropdown(true);
 
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      // Only lookup if looks like a full email
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
         setLookupResult("partial");
         return;
@@ -132,21 +104,10 @@ const FriendsPage = () => {
     sendRequestMutation(trimmed);
   };
 
-  const handleRemoveConfirm = (friendId, friendName) => {
-    setConfirmRemove({ id: friendId, name: friendName });
-  };
-
-  const handleRemoveExecute = () => {
-    if (!confirmRemove) return;
-    setRemovingId(confirmRemove.id);
-    removeFriendMutation(confirmRemove.id);
-  };
-
   const filteredFriends = friends.filter((f) =>
     f.fullName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Render dropdown content
   const renderDropdown = () => {
     if (!showDropdown) return null;
 
@@ -172,7 +133,6 @@ const FriendsPage = () => {
         </div>
       );
     } else if (lookupResult && typeof lookupResult === "object") {
-      // Check if already friends
       const isAlreadyFriend = friends.some((f) => f._id === lookupResult._id);
       content = (
         <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -200,7 +160,9 @@ const FriendsPage = () => {
               disabled={isSending}
               className="btn btn-primary btn-xs gap-1"
             >
-              {isSending ? <LoaderIcon className="size-3 animate-spin" /> : <SendIcon className="size-3" />}
+              {isSending
+                ? <LoaderIcon className="size-3 animate-spin" />
+                : <SendIcon className="size-3" />}
               Send
             </button>
           )}
@@ -238,7 +200,7 @@ const FriendsPage = () => {
           </Link>
         </div>
 
-        {/* ── Add Friend by Email Card ── */}
+        {/* Add Friend Card */}
         <div className="card bg-base-200 shadow-md">
           <div className="card-body">
             <h2 className="card-title text-lg flex items-center gap-2">
@@ -250,23 +212,18 @@ const FriendsPage = () => {
             </p>
 
             <form onSubmit={handleSendRequest} className="flex flex-col sm:flex-row gap-3">
-              {/* Email input with live lookup dropdown */}
               <div className="relative flex-1" ref={dropdownRef}>
                 <MailIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40 z-10" />
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setShowDropdown(true);
-                  }}
+                  onChange={(e) => { setEmail(e.target.value); setShowDropdown(true); }}
                   onFocus={() => email.trim().length >= 3 && setShowDropdown(true)}
                   placeholder="Enter their email address..."
                   className="input input-bordered w-full pl-10"
                   disabled={isSending}
                   autoComplete="off"
                 />
-                {/* Live lookup dropdown */}
                 {renderDropdown()}
               </div>
 
@@ -275,17 +232,15 @@ const FriendsPage = () => {
                 className="btn btn-primary gap-2 sm:w-auto w-full"
                 disabled={isSending || !email.trim()}
               >
-                {isSending ? (
-                  <><LoaderIcon className="size-4 animate-spin" />Sending…</>
-                ) : (
-                  <><SendIcon className="size-4" />Send Request</>
-                )}
+                {isSending
+                  ? <><LoaderIcon className="size-4 animate-spin" />Sending…</>
+                  : <><SendIcon className="size-4" />Send Request</>}
               </button>
             </form>
           </div>
         </div>
 
-        {/* ── Friends List ── */}
+        {/* Friends List */}
         <div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
             <h2 className="text-xl font-semibold">
@@ -334,59 +289,12 @@ const FriendsPage = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredFriends.map((friend) => (
-                <FriendCard
-                  key={friend._id}
-                  friend={friend}
-                  onRemove={handleRemoveConfirm}
-                  isRemoving={removingId === friend._id}
-                />
+                <FriendCard key={friend._id} friend={friend} />
               ))}
             </div>
           )}
         </div>
       </div>
-
-      {/* ── Confirm Remove Modal ── */}
-      {confirmRemove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="card bg-base-100 shadow-2xl w-full max-w-sm mx-4">
-            <div className="card-body text-center gap-4">
-              <div className="mx-auto size-14 rounded-full bg-error/10 flex items-center justify-center">
-                <UserMinusIcon className="size-7 text-error" />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">Remove Friend?</h3>
-                <p className="text-base-content/60 text-sm mt-1">
-                  Are you sure you want to remove{" "}
-                  <span className="font-semibold text-base-content">{confirmRemove.name}</span>{" "}
-                  from your friends list?
-                </p>
-              </div>
-              <div className="flex gap-3 justify-center">
-                <button
-                  className="btn btn-ghost flex-1"
-                  onClick={() => setConfirmRemove(null)}
-                  disabled={removingId !== null}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-error flex-1 gap-2"
-                  onClick={handleRemoveExecute}
-                  disabled={removingId !== null}
-                >
-                  {removingId !== null ? (
-                    <span className="loading loading-spinner loading-sm" />
-                  ) : (
-                    <UserMinusIcon className="size-4" />
-                  )}
-                  Remove
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
