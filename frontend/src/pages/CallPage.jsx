@@ -264,7 +264,17 @@ const CallContent = () => {
             />
           </div>
 
-          {/* Floating draggable PiPs — one per participant (excluding the sharer) */}
+          {/* Sharer's camera — shown as a PiP in the top-left corner for everyone */}
+          <DraggablePip
+            key={`cam-${screenSharer.sessionId}`}
+            participant={screenSharer}
+            trackType="videoTrack"
+            initialRight={undefined}
+            initialLeft={16}
+            initialTop={16}
+          />
+
+          {/* Floating draggable PiPs — one per other participant (excluding the sharer) */}
           {stripParticipants.map((p, idx) => (
             <DraggablePip
               key={p.sessionId}
@@ -402,19 +412,33 @@ const CallContent = () => {
 };
 
 /* ─── draggable pip for participants during screen share ─────── */
-const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) => {
-  const [pos, setPos] = useState({ right: initialRight, bottom: initialBottom });
+const DraggablePip = ({
+  participant,
+  trackType = "videoTrack",
+  initialRight,
+  initialBottom,
+  initialLeft,
+  initialTop,
+}) => {
+  // Support both top-left and bottom-right anchoring
+  const isTopAnchored = initialTop !== undefined;
+  const [pos, setPos] = useState({
+    right: initialRight,
+    bottom: initialBottom,
+    left: initialLeft,
+    top: initialTop,
+  });
   const [size, setSize] = useState({ w: 180, h: 120 });
   const ref = useRef(null);
   const isDragging = useRef(false);
-  const dragOrigin = useRef({ mx: 0, my: 0, right: 0, bottom: 0 });
+  const dragOrigin = useRef({ mx: 0, my: 0, ...pos });
   const isResizing = useRef(false);
   const resizeOrigin = useRef({ mx: 0, my: 0, w: 0, h: 0 });
 
   const onPointerDown = (e) => {
     if (e.target.closest("[data-resize]")) return;
     isDragging.current = true;
-    dragOrigin.current = { mx: e.clientX, my: e.clientY, right: pos.right, bottom: pos.bottom };
+    dragOrigin.current = { mx: e.clientX, my: e.clientY, ...pos };
     ref.current?.setPointerCapture(e.pointerId);
     e.preventDefault();
   };
@@ -423,10 +447,19 @@ const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) =>
     if (isDragging.current) {
       const dx = e.clientX - dragOrigin.current.mx;
       const dy = e.clientY - dragOrigin.current.my;
-      setPos({
-        right: Math.max(0, dragOrigin.current.right - dx),
-        bottom: Math.max(0, dragOrigin.current.bottom - dy),
-      });
+      if (isTopAnchored) {
+        setPos((p) => ({
+          ...p,
+          left: Math.max(0, (dragOrigin.current.left ?? 0) + dx),
+          top: Math.max(0, (dragOrigin.current.top ?? 0) + dy),
+        }));
+      } else {
+        setPos((p) => ({
+          ...p,
+          right: Math.max(0, (dragOrigin.current.right ?? 0) - dx),
+          bottom: Math.max(0, (dragOrigin.current.bottom ?? 0) - dy),
+        }));
+      }
     } else if (isResizing.current) {
       const dw = e.clientX - resizeOrigin.current.mx;
       const dh = e.clientY - resizeOrigin.current.my;
@@ -450,6 +483,10 @@ const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) =>
     e.stopPropagation();
   };
 
+  const posStyle = isTopAnchored
+    ? { left: pos.left, top: pos.top }
+    : { right: pos.right, bottom: pos.bottom };
+
   return (
     <div
       ref={ref}
@@ -458,8 +495,7 @@ const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) =>
       onPointerUp={onPointerUp}
       style={{
         position: "absolute",
-        right: pos.right,
-        bottom: pos.bottom,
+        ...posStyle,
         width: size.w,
         height: size.h,
         zIndex: 30,
@@ -470,7 +506,7 @@ const DraggablePip = ({ participant, initialRight = 16, initialBottom = 80 }) =>
     >
       <ParticipantView
         participant={participant}
-        trackType="videoTrack"
+        trackType={trackType}
         ParticipantViewUI={NoOverlay}
         style={{ width: "100%", height: "100%" }}
       />
