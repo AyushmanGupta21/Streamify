@@ -3,18 +3,46 @@ import { useNavigate, useParams } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
 import { useQuery } from "@tanstack/react-query";
 import { getStreamToken } from "../lib/api";
-import { useCall, useCallStateHooks, CallingState, ParticipantView, StreamCall, StreamTheme, StreamVideo, StreamVideoClient } from "@stream-io/video-react-sdk";
+
+import {
+  StreamVideo,
+  StreamVideoClient,
+  StreamCall,
+  ParticipantView,
+  useCallStateHooks,
+  useCall,
+  CallingState,
+  SfuModels,
+} from "@stream-io/video-react-sdk";
+
+// Import only the base styles — NOT the full StreamTheme (which adds its own buttons)
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 import toast from "react-hot-toast";
 import PageLoader from "../components/PageLoader";
 import {
-  MicIcon, MicOffIcon, VideoIcon, VideoOffIcon, PhoneOffIcon,
-  MonitorUpIcon, MonitorXIcon, MaximizeIcon, MinimizeIcon, GripIcon,
+  MicIcon,
+  MicOffIcon,
+  VideoIcon,
+  VideoOffIcon,
+  PhoneOffIcon,
+  MonitorUpIcon,
+  MonitorXIcon,
+  GripIcon,
 } from "lucide-react";
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
-/* ─── main page ──────────────────────────────────────────────── */
+/* ─── helpers ───────────────────────────────────────────────── */
+
+/** True if a participant is publishing their screen share track */
+const isParticipantSharingScreen = (p) =>
+  Array.isArray(p?.publishedTracks) &&
+  p.publishedTracks.includes(SfuModels.TrackType.SCREEN_SHARE);
+
+const FALLBACK_AVATAR =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234b5563'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%239ca3af'/%3E%3Cellipse cx='50' cy='90' rx='30' ry='22' fill='%239ca3af'/%3E%3C/svg%3E";
+
+/* ─── main page ─────────────────────────────────────────────── */
 const CallPage = () => {
   const { id: callId } = useParams();
   const [client, setClient] = useState(null);
@@ -34,7 +62,11 @@ const CallPage = () => {
       try {
         const videoClient = new StreamVideoClient({
           apiKey: STREAM_API_KEY,
-          user: { id: authUser._id, name: authUser.fullName, image: authUser.profilePic },
+          user: {
+            id: authUser._id,
+            name: authUser.fullName,
+            image: authUser.profilePic,
+          },
           token: tokenData.token,
         });
         const callInstance = videoClient.call("default", callId);
@@ -53,194 +85,208 @@ const CallPage = () => {
 
   if (isLoading || isConnecting) return <PageLoader />;
 
+  if (!client || !call) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-white">
+        <p>Could not initialize call. Please refresh or try again later.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen bg-gray-950 overflow-hidden">
-      {client && call ? (
-        <StreamVideo client={client}>
-          <StreamCall call={call}>
-            <StreamTheme>
-              <CallContent />
-            </StreamTheme>
-          </StreamCall>
-        </StreamVideo>
-      ) : (
-        <div className="flex items-center justify-center h-full text-white">
-          <p>Could not initialize call. Please refresh or try again later.</p>
-        </div>
-      )}
-    </div>
+    <StreamVideo client={client}>
+      <StreamCall call={call}>
+        <CallContent />
+      </StreamCall>
+    </StreamVideo>
   );
 };
 
-/* ─── call content ───────────────────────────────────────────── */
+/* ─── call content ──────────────────────────────────────────── */
 const CallContent = () => {
   const call = useCall();
   const navigate = useNavigate();
+
   const {
     useCallCallingState,
     useParticipants,
     useLocalParticipant,
-    useScreenShareState,
     useMicrophoneState,
     useCameraState,
+    useScreenShareState,
   } = useCallStateHooks();
 
   const callingState = useCallCallingState();
   const participants = useParticipants();
   const localParticipant = useLocalParticipant();
-  const { status: screenShareStatus } = useScreenShareState();
   const { microphone, isMute: micMuted } = useMicrophoneState();
   const { camera, isMute: camMuted } = useCameraState();
+  const { status: screenShareStatus } = useScreenShareState();
 
-  const isScreenSharing = screenShareStatus === "enabled";
+  const isLocalSharing = screenShareStatus === "enabled";
 
-  // ── draggable self-view state ──
-  const [selfPos, setSelfPos] = useState({ x: 16, y: 16 }); // bottom-right offset (px)
-  const [selfSize, setSelfSize] = useState({ w: 200, h: 140 });
-  const dragRef = useRef(null);
+  // Find whoever is sharing their screen (could be local OR remote)
+  const screenSharer = participants.find(isParticipantSharingScreen);
+
+  // Everyone except the screen sharer (for the thumbnail strip)
+  const stripParticipants = screenSharer
+    ? participants.filter((p) => p.sessionId !== screenSharer.sessionId)
+    : [];
+
+  // Remote participants for the normal grid (no screen share)
+  const remoteParticipants = participants.filter(
+    (p) => p.sessionId !== localParticipant?.sessionId
+  );
+
+  // ── PiP drag/resize state ──
+  const [pipPos, setPipPos] = useState({ right: 16, bottom: 80 });
+  const [pipSize, setPipSize] = useState({ w: 200, h: 140 });
+  const pipRef = useRef(null);
   const isDragging = useRef(false);
-  const dragStart = useRef({ mx: 0, my: 0, px: 0, py: 0 });
-  const containerRef = useRef(null);
+  const dragOrigin = useRef({ mx: 0, my: 0, right: 0, bottom: 0 });
+  const isResizing = useRef(false);
+  const resizeOrigin = useRef({ mx: 0, my: 0, w: 0, h: 0 });
+
+  const onPipPointerDown = useCallback((e) => {
+    if (e.target.closest("[data-resize]")) return; // let resize handle it
+    isDragging.current = true;
+    dragOrigin.current = {
+      mx: e.clientX,
+      my: e.clientY,
+      right: pipPos.right,
+      bottom: pipPos.bottom,
+    };
+    pipRef.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [pipPos]);
+
+  const onPipPointerMove = useCallback((e) => {
+    if (isDragging.current) {
+      const dx = e.clientX - dragOrigin.current.mx;
+      const dy = e.clientY - dragOrigin.current.my;
+      setPipPos({
+        right: Math.max(0, dragOrigin.current.right - dx),
+        bottom: Math.max(0, dragOrigin.current.bottom - dy),
+      });
+    } else if (isResizing.current) {
+      const dw = e.clientX - resizeOrigin.current.mx;
+      const dh = e.clientY - resizeOrigin.current.my;
+      setPipSize({
+        w: Math.max(120, Math.min(400, resizeOrigin.current.w + dw)),
+        h: Math.max(90, Math.min(280, resizeOrigin.current.h + dh)),
+      });
+    }
+  }, []);
+
+  const onPipPointerUp = useCallback(() => {
+    isDragging.current = false;
+    isResizing.current = false;
+  }, []);
+
+  const onResizePointerDown = useCallback((e) => {
+    isResizing.current = true;
+    resizeOrigin.current = {
+      mx: e.clientX,
+      my: e.clientY,
+      w: pipSize.w,
+      h: pipSize.h,
+    };
+    pipRef.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    e.stopPropagation();
+  }, [pipSize]);
+
+  const toggleScreenShare = async () => {
+    try {
+      await call.screenShare.toggle();
+    } catch (e) {
+      toast.error("Screen share failed: " + (e.message || "Unknown error"));
+    }
+  };
 
   const handleLeave = async () => {
     await call.leave();
     navigate("/");
   };
 
-  const toggleScreenShare = async () => {
-    try {
-      await call.screenShare.toggle();
-    } catch (e) {
-      toast.error("Screen share failed: " + e.message);
-    }
-  };
-
-  // Remote participants (everyone except self)
-  const remoteParticipants = participants.filter(
-    (p) => p.sessionId !== localParticipant?.sessionId
-  );
-
-  // Find screen share stream — prefer remote, then local
-  const screenSharer = participants.find(
-    (p) => p.screenShareStream && p.screenShareStream.active
-  );
-
-  // ── drag handlers for self-view pip ──
-  const onPointerDown = useCallback((e) => {
-    isDragging.current = true;
-    dragStart.current = {
-      mx: e.clientX,
-      my: e.clientY,
-      px: selfPos.x,
-      py: selfPos.y,
-    };
-    dragRef.current?.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }, [selfPos]);
-
-  const onPointerMove = useCallback((e) => {
-    if (!isDragging.current) return;
-    const dx = e.clientX - dragStart.current.mx;
-    const dy = e.clientY - dragStart.current.my;
-    const newX = Math.max(0, dragStart.current.px - dx);
-    const newY = Math.max(0, dragStart.current.py - dy);
-    setSelfPos({ x: newX, y: newY });
-  }, []);
-
-  const onPointerUp = useCallback(() => { isDragging.current = false; }, []);
-
-  // Resize handle
-  const resizeRef = useRef(null);
-  const isResizing = useRef(false);
-  const resizeStart = useRef({ mx: 0, my: 0, w: 0, h: 0 });
-
-  const onResizeDown = useCallback((e) => {
-    isResizing.current = true;
-    resizeStart.current = {
-      mx: e.clientX,
-      my: e.clientY,
-      w: selfSize.w,
-      h: selfSize.h,
-    };
-    resizeRef.current?.setPointerCapture(e.pointerId);
-    e.preventDefault();
-    e.stopPropagation();
-  }, [selfSize]);
-
-  const onResizeMove = useCallback((e) => {
-    if (!isResizing.current) return;
-    const dw = e.clientX - resizeStart.current.mx;
-    const dh = e.clientY - resizeStart.current.my;
-    setSelfSize({
-      w: Math.max(120, Math.min(400, resizeStart.current.w + dw)),
-      h: Math.max(90, Math.min(280, resizeStart.current.h + dh)),
-    });
-  }, []);
-
-  const onResizeUp = useCallback(() => { isResizing.current = false; }, []);
-
   if (callingState === CallingState.LEFT) {
     navigate("/");
     return null;
   }
 
-  /* ─── Screen share active — show the screen big, all others in strip ─── */
+  /* ══════════════════════════════════════════════════════════
+     SCREEN SHARE LAYOUT
+  ══════════════════════════════════════════════════════════ */
   if (screenSharer) {
-    const isLocalSharing = screenSharer.sessionId === localParticipant?.sessionId;
-    const otherParticipants = participants.filter(
-      (p) => p.sessionId !== screenSharer.sessionId
-    );
-
     return (
-      <div className="flex flex-col h-screen bg-gray-950 text-white" ref={containerRef}>
-        {/* ── Main: screen share fills 100% width ── */}
-        <div className="flex-1 relative overflow-hidden w-full">
-          {isLocalSharing ? (
-            /* Sharer sees an overlay — they can still watch by seeing the stream preview */
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10">
-              <MonitorUpIcon className="size-16 mb-4 text-primary animate-pulse" />
-              <p className="text-xl font-semibold mb-1">You are presenting your screen</p>
-              <p className="text-sm text-white/60 mb-6">Others can see your screen</p>
+      <div
+        className="flex flex-col bg-gray-950 text-white"
+        style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
+      >
+        {/* ── Main area: screen share ── */}
+        <div className="relative flex-1 w-full overflow-hidden">
+          {/* The actual screen share video — always rendered */}
+          <div className="absolute inset-0">
+            <ParticipantView
+              participant={screenSharer}
+              trackType="screenShareTrack"
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
+
+          {/* Sharer-only overlay (sits on top, pointer-events-none so the video is still visible) */}
+          {isLocalSharing && (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center z-20"
+              style={{ background: "rgba(0,0,0,0.55)" }}
+            >
+              <MonitorUpIcon className="size-14 mb-3 text-primary" />
+              <p className="text-xl font-bold mb-1">You are presenting your screen</p>
+              <p className="text-sm text-white/60 mb-5">Others can see your screen</p>
               <button
                 onClick={toggleScreenShare}
-                className="btn btn-error gap-2"
+                className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-xl font-semibold transition-colors"
               >
                 <MonitorXIcon className="size-5" />
                 Stop Screen Sharing
               </button>
             </div>
-          ) : null}
-
-          <div className="absolute inset-0">
-            <ParticipantView
-              participant={screenSharer}
-              trackType="screenShareTrack"
-              className="w-full h-full"
-            />
-          </div>
-        </div>
-
-        {/* ── Participant strip (camera feeds) ── */}
-        <div className="h-32 flex gap-2 px-3 py-2 bg-gray-900 overflow-x-auto flex-shrink-0">
-          {otherParticipants.map((p) => (
-            <div key={p.sessionId} className="h-full aspect-video rounded-lg overflow-hidden flex-shrink-0 relative border border-white/10">
-              <ParticipantView participant={p} trackType="videoTrack" className="w-full h-full" />
-            </div>
-          ))}
-          {/* Self cam tile */}
-          {localParticipant && (
-            <div className="h-full aspect-video rounded-lg overflow-hidden flex-shrink-0 relative border-2 border-primary/60">
-              <ParticipantView participant={localParticipant} trackType="videoTrack" className="w-full h-full" />
-              <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white">You</span>
-            </div>
           )}
         </div>
 
-        {/* Controls */}
+        {/* ── Participant thumbnail strip ── */}
+        <div
+          className="flex gap-2 px-3 py-2 bg-gray-900 border-t border-white/10 overflow-x-auto"
+          style={{ minHeight: 112, maxHeight: 128, flexShrink: 0 }}
+        >
+          {stripParticipants.map((p) => {
+            const isLocal = p.sessionId === localParticipant?.sessionId;
+            return (
+              <div
+                key={p.sessionId}
+                className="flex-shrink-0 rounded-xl overflow-hidden relative border border-white/10"
+                style={{ width: 160, height: 96 }}
+              >
+                <ParticipantView
+                  participant={p}
+                  trackType="videoTrack"
+                  style={{ width: "100%", height: "100%" }}
+                />
+                {isLocal && (
+                  <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white">
+                    You
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Controls ── */}
         <CallBar
           micMuted={micMuted}
           camMuted={camMuted}
-          isScreenSharing={isScreenSharing}
+          isScreenSharing={isLocalSharing}
           onToggleMic={() => microphone.toggle()}
           onToggleCam={() => camera.toggle()}
           onToggleScreen={toggleScreenShare}
@@ -250,87 +296,100 @@ const CallContent = () => {
     );
   }
 
-  /* ─── No screen share ── grid of participants + floating self-view PiP ─── */
+  /* ══════════════════════════════════════════════════════════
+     NORMAL LAYOUT (no screen share)
+  ══════════════════════════════════════════════════════════ */
+  const showPip = localParticipant && remoteParticipants.length > 0;
 
-  /* Grid layout: 1 remote = spotlight; 2 remotes = side-by-side; etc. */
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white" ref={containerRef}>
-
+    <div
+      className="flex flex-col bg-gray-950 text-white"
+      style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
+    >
       {/* ── Main video area ── */}
-      <div className="flex-1 relative overflow-hidden p-2">
+      <div className="relative flex-1 overflow-hidden" style={{ padding: 8 }}>
         {remoteParticipants.length === 0 ? (
-          /* Alone in call — show self big */
-          <div className="absolute inset-0 rounded-2xl overflow-hidden">
+          /* Alone — show yourself big */
+          <div className="absolute inset-0 m-2 rounded-2xl overflow-hidden">
             {localParticipant && (
-              <ParticipantView participant={localParticipant} trackType="videoTrack" className="w-full h-full" />
+              <ParticipantView
+                participant={localParticipant}
+                trackType="videoTrack"
+                style={{ width: "100%", height: "100%" }}
+              />
             )}
           </div>
         ) : remoteParticipants.length === 1 ? (
-          /* One remote — fills entire area */
-          <div className="absolute inset-0 rounded-2xl overflow-hidden">
+          /* One remote — full area */
+          <div className="absolute inset-0 m-2 rounded-2xl overflow-hidden">
             <ParticipantView
               participant={remoteParticipants[0]}
               trackType="videoTrack"
-              className="w-full h-full"
+              style={{ width: "100%", height: "100%" }}
             />
           </div>
         ) : (
-          /* Multiple remotes — responsive grid */
+          /* Multiple remotes — grid */
           <div
-            className="absolute inset-0 grid gap-2"
+            className="absolute inset-0 m-2 grid gap-2"
             style={{
               gridTemplateColumns: `repeat(${Math.min(remoteParticipants.length, 2)}, 1fr)`,
             }}
           >
             {remoteParticipants.map((p) => (
               <div key={p.sessionId} className="rounded-xl overflow-hidden">
-                <ParticipantView participant={p} trackType="videoTrack" className="w-full h-full" />
+                <ParticipantView
+                  participant={p}
+                  trackType="videoTrack"
+                  style={{ width: "100%", height: "100%" }}
+                />
               </div>
             ))}
           </div>
         )}
 
-        {/* ── Floating self-view PiP (draggable + resizable) ── */}
-        {localParticipant && remoteParticipants.length > 0 && (
+        {/* ── Floating self PiP ── */}
+        {showPip && (
           <div
-            ref={dragRef}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
+            ref={pipRef}
+            onPointerDown={onPipPointerDown}
+            onPointerMove={onPipPointerMove}
+            onPointerUp={onPipPointerUp}
+            className="absolute rounded-xl overflow-hidden border-2 cursor-grab active:cursor-grabbing group"
             style={{
-              position: "absolute",
-              right: selfPos.x,
-              bottom: selfPos.y,
-              width: selfSize.w,
-              height: selfSize.h,
+              right: pipPos.right,
+              bottom: pipPos.bottom,
+              width: pipSize.w,
+              height: pipSize.h,
+              borderColor: "rgba(99,102,241,0.7)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+              zIndex: 20,
               touchAction: "none",
               userSelect: "none",
-              zIndex: 20,
             }}
-            className="rounded-xl overflow-hidden border-2 border-primary/60 shadow-2xl cursor-grab active:cursor-grabbing group"
           >
             <ParticipantView
               participant={localParticipant}
               trackType="videoTrack"
-              className="w-full h-full"
+              style={{ width: "100%", height: "100%" }}
             />
-            {/* drag handle icon */}
-            <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+
+            {/* Drag hint */}
+            <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
               <GripIcon className="size-4 text-white drop-shadow" />
             </div>
-            <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white">You</span>
+            <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 px-1 rounded text-white pointer-events-none">
+              You
+            </span>
 
-            {/* Resize handle — bottom-right corner */}
+            {/* Resize corner */}
             <div
-              ref={resizeRef}
-              onPointerDown={onResizeDown}
-              onPointerMove={onResizeMove}
-              onPointerUp={onResizeUp}
+              data-resize="true"
+              onPointerDown={onResizePointerDown}
+              className="absolute bottom-0 right-0 w-5 h-5 flex items-end justify-end cursor-nwse-resize"
               style={{ touchAction: "none" }}
-              className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize flex items-end justify-end"
-              title="Resize"
             >
-              <svg viewBox="0 0 10 10" className="w-3 h-3 text-white/60 fill-current">
+              <svg viewBox="0 0 10 10" className="w-3 h-3" fill="rgba(255,255,255,0.5)">
                 <path d="M0 10 L10 0 L10 10Z" />
               </svg>
             </div>
@@ -338,11 +397,11 @@ const CallContent = () => {
         )}
       </div>
 
-      {/* Controls */}
+      {/* ── Controls ── */}
       <CallBar
         micMuted={micMuted}
         camMuted={camMuted}
-        isScreenSharing={isScreenSharing}
+        isScreenSharing={isLocalSharing}
         onToggleMic={() => microphone.toggle()}
         onToggleCam={() => camera.toggle()}
         onToggleScreen={toggleScreenShare}
@@ -352,45 +411,60 @@ const CallContent = () => {
   );
 };
 
-/* ─── bottom control bar ─────────────────────────────────────── */
-const CallBar = ({ micMuted, camMuted, isScreenSharing, onToggleMic, onToggleCam, onToggleScreen, onLeave }) => (
-  <div className="flex items-center justify-center gap-3 py-3 px-4 bg-gray-900 border-t border-white/10 flex-shrink-0">
-    {/* Mic */}
-    <button
-      onClick={onToggleMic}
-      className={`btn btn-circle btn-sm ${micMuted ? "btn-error" : "btn-ghost text-white"}`}
-      title={micMuted ? "Unmute" : "Mute"}
-    >
-      {micMuted ? <MicOffIcon className="size-5" /> : <MicIcon className="size-5" />}
-    </button>
+/* ─── bottom bar ────────────────────────────────────────────── */
+const CallBar = ({
+  micMuted,
+  camMuted,
+  isScreenSharing,
+  onToggleMic,
+  onToggleCam,
+  onToggleScreen,
+  onLeave,
+}) => {
+  const btnBase =
+    "flex items-center justify-center w-11 h-11 rounded-full transition-colors focus:outline-none";
+  const ghostBtn = `${btnBase} bg-white/10 hover:bg-white/20 text-white`;
+  const activeBtn = `${btnBase} bg-red-600 hover:bg-red-700 text-white`;
+  const warnBtn = `${btnBase} bg-yellow-500 hover:bg-yellow-600 text-white`;
 
-    {/* Camera */}
-    <button
-      onClick={onToggleCam}
-      className={`btn btn-circle btn-sm ${camMuted ? "btn-error" : "btn-ghost text-white"}`}
-      title={camMuted ? "Start camera" : "Stop camera"}
+  return (
+    <div
+      className="flex items-center justify-center gap-4 border-t border-white/10 bg-gray-900"
+      style={{ height: 68, flexShrink: 0 }}
     >
-      {camMuted ? <VideoOffIcon className="size-5" /> : <VideoIcon className="size-5" />}
-    </button>
+      <button
+        onClick={onToggleMic}
+        className={micMuted ? activeBtn : ghostBtn}
+        title={micMuted ? "Unmute" : "Mute"}
+      >
+        {micMuted ? <MicOffIcon className="size-5" /> : <MicIcon className="size-5" />}
+      </button>
 
-    {/* Screen share */}
-    <button
-      onClick={onToggleScreen}
-      className={`btn btn-circle btn-sm ${isScreenSharing ? "btn-warning" : "btn-ghost text-white"}`}
-      title={isScreenSharing ? "Stop sharing" : "Share screen"}
-    >
-      {isScreenSharing ? <MonitorXIcon className="size-5" /> : <MonitorUpIcon className="size-5" />}
-    </button>
+      <button
+        onClick={onToggleCam}
+        className={camMuted ? activeBtn : ghostBtn}
+        title={camMuted ? "Start camera" : "Stop camera"}
+      >
+        {camMuted ? <VideoOffIcon className="size-5" /> : <VideoIcon className="size-5" />}
+      </button>
 
-    {/* Leave */}
-    <button
-      onClick={onLeave}
-      className="btn btn-circle btn-sm btn-error"
-      title="Leave call"
-    >
-      <PhoneOffIcon className="size-5" />
-    </button>
-  </div>
-);
+      <button
+        onClick={onToggleScreen}
+        className={isScreenSharing ? warnBtn : ghostBtn}
+        title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+      >
+        {isScreenSharing ? (
+          <MonitorXIcon className="size-5" />
+        ) : (
+          <MonitorUpIcon className="size-5" />
+        )}
+      </button>
+
+      <button onClick={onLeave} className={activeBtn} title="Leave call">
+        <PhoneOffIcon className="size-5" />
+      </button>
+    </div>
+  );
+};
 
 export default CallPage;
