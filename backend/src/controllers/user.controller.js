@@ -79,6 +79,53 @@ export async function sendFriendRequest(req, res) {
   }
 }
 
+export async function sendFriendRequestByEmail(req, res) {
+  try {
+    const myId = req.user.id;
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const recipient = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!recipient) {
+      return res.status(404).json({ message: "No user found with that email address" });
+    }
+
+    const recipientId = recipient._id.toString();
+
+    if (myId === recipientId) {
+      return res.status(400).json({ message: "You can't send a friend request to yourself" });
+    }
+
+    if (recipient.friends.map(String).includes(myId)) {
+      return res.status(400).json({ message: "You are already friends with this user" });
+    }
+
+    const existingRequest = await FriendRequest.findOne({
+      $or: [
+        { sender: myId, recipient: recipientId },
+        { sender: recipientId, recipient: myId },
+      ],
+    });
+
+    if (existingRequest) {
+      return res.status(400).json({ message: "A friend request already exists with this user" });
+    }
+
+    const friendRequest = await FriendRequest.create({
+      sender: myId,
+      recipient: recipientId,
+    });
+
+    res.status(201).json({ success: true, friendRequest, recipientName: recipient.fullName });
+  } catch (error) {
+    console.error("Error in sendFriendRequestByEmail controller", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
 export async function acceptFriendRequest(req, res) {
   try {
     const { id: requestId } = req.params;

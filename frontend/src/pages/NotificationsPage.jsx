@@ -50,19 +50,23 @@ const NotificationsPage = () => {
                       <div className="card-body p-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="avatar w-14 h-14 rounded-full bg-base-300">
-                              <img src={request.sender.profilePic} alt={request.sender.fullName} />
+                            <div className="avatar w-14 h-14 rounded-full bg-base-300 overflow-hidden">
+                              <img
+                                src={request.sender.profilePic}
+                                alt={request.sender.fullName}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.onerror = null;
+                                  e.target.src =
+                                    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234b5563'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%239ca3af'/%3E%3Cellipse cx='50' cy='90' rx='30' ry='22' fill='%239ca3af'/%3E%3C/svg%3E";
+                                }}
+                              />
                             </div>
                             <div>
                               <h3 className="font-semibold">{request.sender.fullName}</h3>
-                              <div className="flex flex-wrap gap-1.5 mt-1">
-                                <span className="badge badge-secondary badge-sm">
-                                  Native: {request.sender.nativeLanguage}
-                                </span>
-                                <span className="badge badge-outline badge-sm">
-                                  Learning: {request.sender.learningLanguage}
-                                </span>
-                              </div>
+                              <p className="text-sm text-base-content/60">
+                                Wants to be your friend
+                              </p>
                             </div>
                           </div>
 
