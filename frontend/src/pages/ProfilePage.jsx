@@ -92,9 +92,14 @@ const ProfilePage = () => {
     updateMutation(formState);
   };
 
+  // Reliable avatar styles from DiceBear (no auth, no CORS issues)
+  const AVATAR_STYLES = ["adventurer", "avataaars", "big-ears", "bottts", "fun-emoji", "lorelei", "micah", "miniavs", "personas", "pixel-art", "thumbs"];
+
   const handleRandomAvatar = () => {
-    const idx = Math.floor(Math.random() * 100) + 1;
-    setFormState({ ...formState, profilePic: `https://avatar.iran.liara.run/public/${idx}.png` });
+    const style = AVATAR_STYLES[Math.floor(Math.random() * AVATAR_STYLES.length)];
+    const seed = Math.random().toString(36).substring(2, 10);
+    const randomAvatar = `https://api.dicebear.com/9.x/${style}/svg?seed=${seed}`;
+    setFormState({ ...formState, profilePic: randomAvatar });
     toast.success("Random avatar generated!");
     setShowUrlInput(false);
   };
@@ -166,10 +171,16 @@ const ProfilePage = () => {
               <div className="flex flex-col sm:flex-row items-center gap-6">
 
                 {/* Avatar preview — clicking it opens the file picker */}
-                <div className="relative group flex-shrink-0">
+                {/*
+                  FIX: outer wrapper is size-28 + relative so overlay's inset-0
+                  maps exactly to the circle. Overlay is a SIBLING of the circle
+                  (not a child) so overflow:hidden on the circle doesn't interfere.
+                */}
+                <div className="relative size-28 flex-shrink-0 group">
+                  {/* Circle */}
                   <div
-                    className="size-28 rounded-full overflow-hidden bg-base-300 ring-4 ring-primary/30
-                                cursor-pointer transition-all group-hover:ring-primary"
+                    className="size-28 rounded-full overflow-hidden bg-base-300
+                                ring-4 ring-primary/30 transition-all group-hover:ring-primary cursor-pointer"
                     onClick={() => fileInputRef.current?.click()}
                     title="Click to upload photo"
                   >
@@ -183,8 +194,10 @@ const ProfilePage = () => {
                         alt="Profile Preview"
                         className="w-full h-full object-cover"
                         onError={(e) => {
+                          // final fallback: inline SVG so it never stays blank
                           e.target.onerror = null;
-                          e.target.src = "https://avatar.iran.liara.run/public/1.png";
+                          e.target.src =
+                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234b5563'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%239ca3af'/%3E%3Cellipse cx='50' cy='90' rx='30' ry='22' fill='%239ca3af'/%3E%3C/svg%3E";
                         }}
                       />
                     ) : (
@@ -192,15 +205,18 @@ const ProfilePage = () => {
                         <CameraIcon className="size-10 text-base-content/30" />
                       </div>
                     )}
-
-                    {/* hover overlay */}
-                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0
-                                    group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <CameraIcon className="size-7 text-white" />
-                    </div>
                   </div>
 
-                  <p className="text-xs text-center text-base-content/40 mt-1 w-28">
+                  {/* Hover overlay — sibling of circle, perfectly aligned via inset-0 on the size-28 wrapper */}
+                  <div
+                    className="absolute inset-0 rounded-full bg-black/50 opacity-0
+                                group-hover:opacity-100 transition-opacity
+                                flex items-center justify-center cursor-pointer pointer-events-none"
+                  >
+                    <CameraIcon className="size-8 text-white drop-shadow" />
+                  </div>
+
+                  <p className="absolute -bottom-6 left-0 right-0 text-xs text-center text-base-content/40">
                     Click to upload
                   </p>
                 </div>
