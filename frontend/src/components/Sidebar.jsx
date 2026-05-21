@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
-import { BellIcon, HomeIcon, ShipWheelIcon, UsersIcon } from "lucide-react";
+import { BellIcon, HomeIcon, ShipWheelIcon, UserIcon, UsersIcon } from "lucide-react";
 
 const Sidebar = () => {
   const { authUser } = useAuthUser();
@@ -12,7 +12,7 @@ const Sidebar = () => {
       <div className="p-5 border-b border-base-300">
         <Link to="/" className="flex items-center gap-2.5">
           <ShipWheelIcon className="size-9 text-primary" />
-          <span className="text-3xl font-bold font-mono bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary  tracking-wider">
+          <span className="text-3xl font-bold font-mono bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary tracking-wider">
             Streamify
           </span>
         </Link>
@@ -48,24 +48,42 @@ const Sidebar = () => {
           <BellIcon className="size-5 text-base-content opacity-70" />
           <span>Notifications</span>
         </Link>
+
+        <Link
+          to="/profile"
+          className={`btn btn-ghost justify-start w-full gap-3 px-3 normal-case ${
+            currentPath === "/profile" ? "btn-active" : ""
+          }`}
+        >
+          <UserIcon className="size-5 text-base-content opacity-70" />
+          <span>Profile</span>
+        </Link>
       </nav>
 
-      {/* USER PROFILE SECTION */}
+      {/* USER PROFILE SECTION — clickable, links to /profile */}
       <div className="p-4 border-t border-base-300 mt-auto">
-        <div className="flex items-center gap-3">
+        <Link to="/profile" className="flex items-center gap-3 group cursor-pointer">
           <div className="avatar">
-            <div className="w-10 rounded-full">
-              <img src={authUser?.profilePic} alt="User Avatar" />
+            <div className="w-10 rounded-full ring-2 ring-transparent group-hover:ring-primary transition-all">
+              {authUser?.profilePic ? (
+                <img src={authUser.profilePic} alt="User Avatar" />
+              ) : (
+                <div className="bg-base-300 flex items-center justify-center h-full w-full rounded-full">
+                  <UserIcon className="size-5 text-base-content/60" />
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex-1">
-            <p className="font-semibold text-sm">{authUser?.fullName}</p>
+          <div className="flex-1 overflow-hidden">
+            <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+              {authUser?.fullName}
+            </p>
             <p className="text-xs text-success flex items-center gap-1">
               <span className="size-2 rounded-full bg-success inline-block" />
               Online
             </p>
           </div>
-        </div>
+        </Link>
       </div>
     </aside>
   );
