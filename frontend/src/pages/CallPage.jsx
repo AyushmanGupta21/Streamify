@@ -234,21 +234,17 @@ const CallContent = () => {
             />
           </div>
 
-          {/* Sharer-only overlay (sits on top, pointer-events-none so the video is still visible) */}
+          {/* Sharer-only: small floating stop button — no overlay blocking the view */}
           {isLocalSharing && (
-            <div
-              className="absolute inset-0 flex flex-col items-center justify-center z-20"
-              style={{ background: "rgba(0,0,0,0.55)" }}
-            >
-              <MonitorUpIcon className="size-14 mb-3 text-primary" />
-              <p className="text-xl font-bold mb-1">You are presenting your screen</p>
-              <p className="text-sm text-white/60 mb-5">Others can see your screen</p>
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg">
+              <MonitorUpIcon className="size-4 text-primary" />
+              <span className="text-xs text-white font-medium">Presenting</span>
               <button
                 onClick={toggleScreenShare}
-                className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-xl font-semibold transition-colors"
+                className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full transition-colors font-semibold ml-1"
               >
-                <MonitorXIcon className="size-5" />
-                Stop Screen Sharing
+                <MonitorXIcon className="size-3.5" />
+                Stop
               </button>
             </div>
           )}
