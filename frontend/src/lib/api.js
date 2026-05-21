@@ -73,3 +73,13 @@ export async function updateUserProfile(profileData) {
   const response = await axiosInstance.put("/users/profile", profileData);
   return response.data;
 }
+
+export async function lookupUserByEmail(email) {
+  const response = await axiosInstance.get(`/users/lookup?email=${encodeURIComponent(email)}`);
+  return response.data; // { user: { _id, fullName, profilePic, email } | null }
+}
+
+export async function removeFriend(friendId) {
+  const response = await axiosInstance.delete(`/users/friend/${friendId}`);
+  return response.data;
+}

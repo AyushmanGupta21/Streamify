@@ -1,34 +1,60 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getUserFriends, sendFriendRequestByEmail } from "../lib/api";
+import {
+  getUserFriends,
+  lookupUserByEmail,
+  removeFriend,
+  sendFriendRequestByEmail,
+} from "../lib/api";
 import toast from "react-hot-toast";
 import FriendCard from "../components/FriendCard";
 import { Link } from "react-router";
 import {
   BellIcon,
+  CheckCircleIcon,
   LoaderIcon,
   MailIcon,
   SearchIcon,
   SendIcon,
+  UserMinusIcon,
   UserPlusIcon,
   UsersIcon,
+  XCircleIcon,
 } from "lucide-react";
+
+const FALLBACK_AVATAR =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234b5563'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%239ca3af'/%3E%3Cellipse cx='50' cy='90' rx='30' ry='22' fill='%239ca3af'/%3E%3C/svg%3E";
 
 const FriendsPage = () => {
   const queryClient = useQueryClient();
+
+  // ── email add friend state ──
   const [email, setEmail] = useState("");
+  const [lookupResult, setLookupResult] = useState(null); // null | { user } | "not_found" | "loading"
+  const debounceRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // ── friends list state ──
   const [searchQuery, setSearchQuery] = useState("");
+  const [removingId, setRemovingId] = useState(null);
+
+  // ── confirm remove modal state ──
+  const [confirmRemove, setConfirmRemove] = useState(null); // { id, name }
 
   const { data: friends = [], isLoading } = useQuery({
     queryKey: ["friends"],
     queryFn: getUserFriends,
   });
 
-  const { mutate: sendRequestMutation, isPending } = useMutation({
+  // ── Send friend request mutation ──
+  const { mutate: sendRequestMutation, isPending: isSending } = useMutation({
     mutationFn: sendFriendRequestByEmail,
     onSuccess: (data) => {
       toast.success(`Friend request sent to ${data.recipientName}!`);
       setEmail("");
+      setLookupResult(null);
+      setShowDropdown(false);
       queryClient.invalidateQueries({ queryKey: ["outgoingFriendReqs"] });
     },
     onError: (error) => {
@@ -36,8 +62,67 @@ const FriendsPage = () => {
     },
   });
 
+  // ── Remove friend mutation ──
+  const { mutate: removeFriendMutation } = useMutation({
+    mutationFn: removeFriend,
+    onSuccess: (_, friendId) => {
+      toast.success(`${confirmRemove?.name || "Friend"} removed from your friends list`);
+      setRemovingId(null);
+      setConfirmRemove(null);
+      queryClient.invalidateQueries({ queryKey: ["friends"] });
+    },
+    onError: () => {
+      toast.error("Failed to remove friend");
+      setRemovingId(null);
+    },
+  });
+
+  // ── Debounced email lookup ──
+  useEffect(() => {
+    const trimmed = email.trim();
+
+    // Reset if empty or not a plausible email fragment
+    if (!trimmed || trimmed.length < 3) {
+      setLookupResult(null);
+      setShowDropdown(false);
+      return;
+    }
+
+    // Show loading immediately
+    setLookupResult("loading");
+    setShowDropdown(true);
+
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      // Only lookup if looks like a full email
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setLookupResult("partial");
+        return;
+      }
+      try {
+        const data = await lookupUserByEmail(trimmed);
+        setLookupResult(data.user ? data.user : "not_found");
+      } catch {
+        setLookupResult("not_found");
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [email]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const handleSendRequest = (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
@@ -47,9 +132,90 @@ const FriendsPage = () => {
     sendRequestMutation(trimmed);
   };
 
+  const handleRemoveConfirm = (friendId, friendName) => {
+    setConfirmRemove({ id: friendId, name: friendName });
+  };
+
+  const handleRemoveExecute = () => {
+    if (!confirmRemove) return;
+    setRemovingId(confirmRemove.id);
+    removeFriendMutation(confirmRemove.id);
+  };
+
   const filteredFriends = friends.filter((f) =>
     f.fullName.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Render dropdown content
+  const renderDropdown = () => {
+    if (!showDropdown) return null;
+
+    let content;
+    if (lookupResult === "loading") {
+      content = (
+        <div className="flex items-center gap-3 px-4 py-3 text-base-content/60">
+          <LoaderIcon className="size-4 animate-spin" />
+          <span className="text-sm">Looking up…</span>
+        </div>
+      );
+    } else if (lookupResult === "partial") {
+      content = (
+        <div className="px-4 py-3 text-sm text-base-content/50">
+          Keep typing to complete the email…
+        </div>
+      );
+    } else if (lookupResult === "not_found") {
+      content = (
+        <div className="flex items-center gap-3 px-4 py-3 text-error">
+          <XCircleIcon className="size-4" />
+          <span className="text-sm">No user found with this email</span>
+        </div>
+      );
+    } else if (lookupResult && typeof lookupResult === "object") {
+      // Check if already friends
+      const isAlreadyFriend = friends.some((f) => f._id === lookupResult._id);
+      content = (
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="avatar size-9 rounded-full overflow-hidden flex-shrink-0">
+              <img
+                src={lookupResult.profilePic || FALLBACK_AVATAR}
+                alt={lookupResult.fullName}
+                className="w-full h-full object-cover"
+                onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_AVATAR; }}
+              />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">{lookupResult.fullName}</p>
+              <p className="text-xs text-base-content/50">{lookupResult.email}</p>
+            </div>
+          </div>
+          {isAlreadyFriend ? (
+            <span className="badge badge-success gap-1 text-xs">
+              <CheckCircleIcon className="size-3" /> Already friends
+            </span>
+          ) : (
+            <button
+              onClick={handleSendRequest}
+              disabled={isSending}
+              className="btn btn-primary btn-xs gap-1"
+            >
+              {isSending ? <LoaderIcon className="size-3 animate-spin" /> : <SendIcon className="size-3" />}
+              Send
+            </button>
+          )}
+        </div>
+      );
+    } else {
+      return null;
+    }
+
+    return (
+      <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-base-100 border border-base-300 rounded-xl shadow-xl overflow-hidden">
+        {content}
+      </div>
+    );
+  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -79,28 +245,37 @@ const FriendsPage = () => {
               <UserPlusIcon className="size-5 text-primary" />
               Add a Friend
             </h2>
-            <p className="text-sm text-base-content/60 mb-2">
-              Enter your friend's email address to send them a friend request.
+            <p className="text-sm text-base-content/60 mb-3">
+              Enter your friend's email address — we'll look them up instantly.
             </p>
 
             <form onSubmit={handleSendRequest} className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <MailIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40" />
+              {/* Email input with live lookup dropdown */}
+              <div className="relative flex-1" ref={dropdownRef}>
+                <MailIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40 z-10" />
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setShowDropdown(true);
+                  }}
+                  onFocus={() => email.trim().length >= 3 && setShowDropdown(true)}
                   placeholder="Enter their email address..."
                   className="input input-bordered w-full pl-10"
-                  disabled={isPending}
+                  disabled={isSending}
+                  autoComplete="off"
                 />
+                {/* Live lookup dropdown */}
+                {renderDropdown()}
               </div>
+
               <button
                 type="submit"
                 className="btn btn-primary gap-2 sm:w-auto w-full"
-                disabled={isPending || !email.trim()}
+                disabled={isSending || !email.trim()}
               >
-                {isPending ? (
+                {isSending ? (
                   <><LoaderIcon className="size-4 animate-spin" />Sending…</>
                 ) : (
                   <><SendIcon className="size-4" />Send Request</>
@@ -120,7 +295,6 @@ const FriendsPage = () => {
               )}
             </h2>
 
-            {/* Search */}
             {friends.length > 0 && (
               <div className="relative">
                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40" />
@@ -160,13 +334,59 @@ const FriendsPage = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredFriends.map((friend) => (
-                <FriendCard key={friend._id} friend={friend} />
+                <FriendCard
+                  key={friend._id}
+                  friend={friend}
+                  onRemove={handleRemoveConfirm}
+                  isRemoving={removingId === friend._id}
+                />
               ))}
             </div>
           )}
         </div>
-
       </div>
+
+      {/* ── Confirm Remove Modal ── */}
+      {confirmRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="card bg-base-100 shadow-2xl w-full max-w-sm mx-4">
+            <div className="card-body text-center gap-4">
+              <div className="mx-auto size-14 rounded-full bg-error/10 flex items-center justify-center">
+                <UserMinusIcon className="size-7 text-error" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">Remove Friend?</h3>
+                <p className="text-base-content/60 text-sm mt-1">
+                  Are you sure you want to remove{" "}
+                  <span className="font-semibold text-base-content">{confirmRemove.name}</span>{" "}
+                  from your friends list?
+                </p>
+              </div>
+              <div className="flex gap-3 justify-center">
+                <button
+                  className="btn btn-ghost flex-1"
+                  onClick={() => setConfirmRemove(null)}
+                  disabled={removingId !== null}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-error flex-1 gap-2"
+                  onClick={handleRemoveExecute}
+                  disabled={removingId !== null}
+                >
+                  {removingId !== null ? (
+                    <span className="loading loading-spinner loading-sm" />
+                  ) : (
+                    <UserMinusIcon className="size-4" />
+                  )}
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -213,3 +213,55 @@ export async function updateProfile(req, res) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// Preview a user by email (used for live lookup while typing)
+export async function lookupUserByEmail(req, res) {
+  try {
+    const { email } = req.query;
+
+    if (!email || email.trim().length < 3) {
+      return res.status(200).json({ user: null });
+    }
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      _id: { $ne: req.user._id }, // exclude self
+    }).select("fullName profilePic email");
+
+    res.status(200).json({ user: user || null });
+  } catch (error) {
+    console.error("Error in lookupUserByEmail controller", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Remove a friend — removes from both users' friends arrays
+export async function removeFriend(req, res) {
+  try {
+    const myId = req.user._id;
+    const { id: friendId } = req.params;
+
+    // Remove friendId from my friends list
+    await User.findByIdAndUpdate(myId, {
+      $pull: { friends: friendId },
+    });
+
+    // Remove me from their friends list
+    await User.findByIdAndUpdate(friendId, {
+      $pull: { friends: myId },
+    });
+
+    // Also clean up any accepted friend request between them
+    await FriendRequest.deleteMany({
+      $or: [
+        { sender: myId, recipient: friendId },
+        { sender: friendId, recipient: myId },
+      ],
+    });
+
+    res.status(200).json({ success: true, message: "Friend removed successfully" });
+  } catch (error) {
+    console.error("Error in removeFriend controller", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}

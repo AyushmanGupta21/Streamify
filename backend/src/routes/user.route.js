@@ -6,6 +6,8 @@ import {
   getMyFriends,
   getOutgoingFriendReqs,
   getRecommendedUsers,
+  lookupUserByEmail,
+  removeFriend,
   sendFriendRequest,
   sendFriendRequestByEmail,
   updateProfile,
@@ -18,10 +20,13 @@ router.use(protectRoute);
 
 router.get("/", getRecommendedUsers);
 router.get("/friends", getMyFriends);
+router.get("/lookup", lookupUserByEmail);          // GET /api/users/lookup?email=...
 
-router.post("/friend-request/:id", sendFriendRequest);
 router.post("/friend-request/by-email", sendFriendRequestByEmail);
+router.post("/friend-request/:id", sendFriendRequest);
 router.put("/friend-request/:id/accept", acceptFriendRequest);
+
+router.delete("/friend/:id", removeFriend);        // DELETE /api/users/friend/:id
 
 router.get("/friend-requests", getFriendRequests);
 router.get("/outgoing-friend-requests", getOutgoingFriendReqs);
