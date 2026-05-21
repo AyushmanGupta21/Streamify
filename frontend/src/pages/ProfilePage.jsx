@@ -1,22 +1,65 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import useAuthUser from "../hooks/useAuthUser";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { updateUserProfile } from "../lib/api";
 import {
   CameraIcon,
+  ImageIcon,
+  LinkIcon,
   LoaderIcon,
   MapPinIcon,
+  SaveIcon,
   ShuffleIcon,
   UserIcon,
-  SaveIcon,
-  LinkIcon,
+  XIcon,
 } from "lucide-react";
 import { LANGUAGES } from "../constants";
+
+/* ─── helpers ───────────────────────────────────────────────── */
+
+/**
+ * Compress an image File to a base64 JPEG string.
+ * Max dimension: 400 × 400 px, quality 0.82
+ */
+const compressImage = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const MAX = 400;
+        let { width, height } = img;
+
+        if (width > MAX || height > MAX) {
+          if (width > height) {
+            height = Math.round((height * MAX) / width);
+            width = MAX;
+          } else {
+            width = Math.round((width * MAX) / height);
+            height = MAX;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+/* ─── component ─────────────────────────────────────────────── */
 
 const ProfilePage = () => {
   const { authUser } = useAuthUser();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef(null);
 
   const [formState, setFormState] = useState({
     fullName: authUser?.fullName || "",
@@ -29,6 +72,7 @@ const ProfilePage = () => {
 
   const [picUrlInput, setPicUrlInput] = useState("");
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   const { mutate: updateMutation, isPending } = useMutation({
     mutationFn: updateUserProfile,
@@ -41,6 +85,8 @@ const ProfilePage = () => {
     },
   });
 
+  /* ── handlers ── */
+
   const handleSubmit = (e) => {
     e.preventDefault();
     updateMutation(formState);
@@ -48,9 +94,9 @@ const ProfilePage = () => {
 
   const handleRandomAvatar = () => {
     const idx = Math.floor(Math.random() * 100) + 1;
-    const randomAvatar = `https://avatar.iran.liara.run/public/${idx}.png`;
-    setFormState({ ...formState, profilePic: randomAvatar });
+    setFormState({ ...formState, profilePic: `https://avatar.iran.liara.run/public/${idx}.png` });
     toast.success("Random avatar generated!");
+    setShowUrlInput(false);
   };
 
   const handleUrlSubmit = () => {
@@ -58,13 +104,47 @@ const ProfilePage = () => {
       setFormState({ ...formState, profilePic: picUrlInput.trim() });
       setPicUrlInput("");
       setShowUrlInput(false);
-      toast.success("Profile picture URL set!");
+      toast.success("Picture URL applied!");
     }
   };
+
+  /* Gallery / file upload */
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // guard: images only
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // guard: raw file size < 10 MB
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Image must be smaller than 10 MB");
+      return;
+    }
+
+    try {
+      setIsCompressing(true);
+      const base64 = await compressImage(file);
+      setFormState({ ...formState, profilePic: base64 });
+      toast.success("Photo selected! Click Save Changes to apply.");
+    } catch {
+      toast.error("Could not read image, please try another file");
+    } finally {
+      setIsCompressing(false);
+      // reset input so same file can be re-selected
+      e.target.value = "";
+    }
+  };
+
+  const isBusy = isPending || isCompressing;
 
   return (
     <div className="min-h-screen bg-base-100 py-8 px-4">
       <div className="max-w-2xl mx-auto">
+
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -77,22 +157,34 @@ const ProfilePage = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Profile Picture Card */}
+
+          {/* ── Profile Picture Card ── */}
           <div className="card bg-base-200 shadow-md">
             <div className="card-body">
               <h2 className="card-title text-lg mb-4">Profile Picture</h2>
+
               <div className="flex flex-col sm:flex-row items-center gap-6">
-                {/* Avatar Preview */}
-                <div className="relative group">
-                  <div className="size-28 rounded-full overflow-hidden bg-base-300 ring-4 ring-primary/30">
-                    {formState.profilePic ? (
+
+                {/* Avatar preview — clicking it opens the file picker */}
+                <div className="relative group flex-shrink-0">
+                  <div
+                    className="size-28 rounded-full overflow-hidden bg-base-300 ring-4 ring-primary/30
+                                cursor-pointer transition-all group-hover:ring-primary"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Click to upload photo"
+                  >
+                    {isCompressing ? (
+                      <div className="flex items-center justify-center h-full">
+                        <LoaderIcon className="size-8 animate-spin text-primary" />
+                      </div>
+                    ) : formState.profilePic ? (
                       <img
                         src={formState.profilePic}
                         alt="Profile Preview"
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           e.target.onerror = null;
-                          e.target.src = `https://avatar.iran.liara.run/public/1.png`;
+                          e.target.src = "https://avatar.iran.liara.run/public/1.png";
                         }}
                       />
                     ) : (
@@ -100,11 +192,47 @@ const ProfilePage = () => {
                         <CameraIcon className="size-10 text-base-content/30" />
                       </div>
                     )}
+
+                    {/* hover overlay */}
+                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0
+                                    group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <CameraIcon className="size-7 text-white" />
+                    </div>
                   </div>
+
+                  <p className="text-xs text-center text-base-content/40 mt-1 w-28">
+                    Click to upload
+                  </p>
                 </div>
 
-                {/* Picture Controls */}
+                {/* Controls */}
                 <div className="flex flex-col gap-3 flex-1 w-full">
+
+                  {/* ★ Upload from gallery */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="btn btn-primary btn-sm gap-2"
+                    disabled={isCompressing}
+                  >
+                    {isCompressing ? (
+                      <LoaderIcon className="size-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="size-4" />
+                    )}
+                    {isCompressing ? "Processing…" : "Upload from Gallery"}
+                  </button>
+
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+
+                  {/* Random avatar */}
                   <button
                     type="button"
                     onClick={handleRandomAvatar}
@@ -114,6 +242,7 @@ const ProfilePage = () => {
                     Generate Random Avatar
                   </button>
 
+                  {/* Image URL */}
                   <button
                     type="button"
                     onClick={() => setShowUrlInput(!showUrlInput)}
@@ -142,26 +271,31 @@ const ProfilePage = () => {
                     </div>
                   )}
 
+                  {/* Remove */}
                   {formState.profilePic && (
                     <button
                       type="button"
                       onClick={() => setFormState({ ...formState, profilePic: "" })}
-                      className="btn btn-ghost btn-sm text-error"
+                      className="btn btn-ghost btn-sm text-error gap-2"
                     >
+                      <XIcon className="size-4" />
                       Remove Picture
                     </button>
                   )}
+
+                  <p className="text-xs text-base-content/40">
+                    Supported: JPG, PNG, GIF, WebP · Max 10 MB
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Personal Info Card */}
+          {/* ── Personal Info ── */}
           <div className="card bg-base-200 shadow-md">
             <div className="card-body space-y-4">
               <h2 className="card-title text-lg">Personal Information</h2>
 
-              {/* Full Name */}
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Full Name</span>
@@ -176,7 +310,6 @@ const ProfilePage = () => {
                 />
               </div>
 
-              {/* Bio */}
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Bio</span>
@@ -185,11 +318,10 @@ const ProfilePage = () => {
                   value={formState.bio}
                   onChange={(e) => setFormState({ ...formState, bio: e.target.value })}
                   className="textarea textarea-bordered h-24 resize-none"
-                  placeholder="Tell others about yourself and your language learning goals..."
+                  placeholder="Tell others about yourself and your language learning goals…"
                 />
               </div>
 
-              {/* Location */}
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Location</span>
@@ -208,50 +340,39 @@ const ProfilePage = () => {
             </div>
           </div>
 
-          {/* Language Card */}
+          {/* ── Languages ── */}
           <div className="card bg-base-200 shadow-md">
             <div className="card-body space-y-4">
               <h2 className="card-title text-lg">Language Preferences</h2>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Native Language */}
                 <div className="form-control">
                   <label className="label">
                     <span className="label-text font-medium">Native Language</span>
                   </label>
                   <select
                     value={formState.nativeLanguage}
-                    onChange={(e) =>
-                      setFormState({ ...formState, nativeLanguage: e.target.value })
-                    }
+                    onChange={(e) => setFormState({ ...formState, nativeLanguage: e.target.value })}
                     className="select select-bordered w-full"
                   >
                     <option value="">Select native language</option>
                     {LANGUAGES.map((lang) => (
-                      <option key={`native-${lang}`} value={lang.toLowerCase()}>
-                        {lang}
-                      </option>
+                      <option key={`native-${lang}`} value={lang.toLowerCase()}>{lang}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Learning Language */}
                 <div className="form-control">
                   <label className="label">
                     <span className="label-text font-medium">Learning Language</span>
                   </label>
                   <select
                     value={formState.learningLanguage}
-                    onChange={(e) =>
-                      setFormState({ ...formState, learningLanguage: e.target.value })
-                    }
+                    onChange={(e) => setFormState({ ...formState, learningLanguage: e.target.value })}
                     className="select select-bordered w-full"
                   >
                     <option value="">Select learning language</option>
                     {LANGUAGES.map((lang) => (
-                      <option key={`learning-${lang}`} value={lang.toLowerCase()}>
-                        {lang}
-                      </option>
+                      <option key={`learning-${lang}`} value={lang.toLowerCase()}>{lang}</option>
                     ))}
                   </select>
                 </div>
@@ -259,7 +380,7 @@ const ProfilePage = () => {
             </div>
           </div>
 
-          {/* Read-only Info */}
+          {/* ── Account ── */}
           <div className="card bg-base-200 shadow-md">
             <div className="card-body">
               <h2 className="card-title text-lg">Account Information</h2>
@@ -274,30 +395,22 @@ const ProfilePage = () => {
                   disabled
                 />
                 <label className="label">
-                  <span className="label-text-alt text-base-content/50">
-                    Email cannot be changed
-                  </span>
+                  <span className="label-text-alt text-base-content/50">Email cannot be changed</span>
                 </label>
               </div>
             </div>
           </div>
 
-          {/* Save Button */}
+          {/* ── Save ── */}
           <button
             type="submit"
             className="btn btn-primary w-full gap-2"
-            disabled={isPending}
+            disabled={isBusy}
           >
             {isPending ? (
-              <>
-                <LoaderIcon className="animate-spin size-5" />
-                Saving Changes...
-              </>
+              <><LoaderIcon className="animate-spin size-5" />Saving Changes…</>
             ) : (
-              <>
-                <SaveIcon className="size-5" />
-                Save Changes
-              </>
+              <><SaveIcon className="size-5" />Save Changes</>
             )}
           </button>
         </form>
