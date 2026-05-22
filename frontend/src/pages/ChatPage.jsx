@@ -57,11 +57,16 @@ const ChatPage = () => {
 
         // Only call connectUser if not already connected as this user
         if (!client.userID) {
+          // Stream has a 5KB limit on user data — never pass base64 images
+          const safeImage =
+            authUser.profilePic && !authUser.profilePic.startsWith("data:")
+              ? authUser.profilePic
+              : "";
           await client.connectUser(
             {
               id: authUser._id,
               name: authUser.fullName,
-              image: authUser.profilePic,
+              image: safeImage,
             },
             tokenData.token
           );

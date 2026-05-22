@@ -1,16 +1,19 @@
 import { generateStreamToken, upsertStreamUser } from "../lib/stream.js";
 
+// Stream user data limit is 5KB — never pass base64 data URIs
+const safeStreamImage = (pic) =>
+  pic && !pic.startsWith("data:") ? pic : "";
+
 export async function getStreamToken(req, res) {
   try {
     const userId = req.user._id.toString();
 
     // Always upsert the user into Stream before generating a token.
-    // This self-heals accounts that were never synced to Stream (e.g.
-    // created during a cold-start or before this code existed).
+    // This self-heals accounts that were never synced to Stream.
     await upsertStreamUser({
       id: userId,
       name: req.user.fullName,
-      image: req.user.profilePic || "",
+      image: safeStreamImage(req.user.profilePic),
     });
 
     const token = generateStreamToken(userId);
