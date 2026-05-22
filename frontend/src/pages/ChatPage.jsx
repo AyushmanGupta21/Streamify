@@ -16,6 +16,7 @@ import {
 import { EmojiPicker } from "stream-chat-react/emojis";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
+import { createContext, useContext } from "react";
 
 import ChatLoader from "../components/ChatLoader";
 import CallButton from "../components/CallButton";
@@ -24,18 +25,77 @@ import {
   encryptMessage,
   decryptMessage,
   isEncrypted,
+  isEncryptedMediaUrl,
+  encryptFileBytes,
+  decryptFileBytes,
 } from "../lib/chatCrypto";
+import { axiosInstance } from "../lib/axios";
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
-/* ── Encryption key context ────────────────────────────────── */
-import { createContext, useContext } from "react";
+/* ── Encryption key context ─────────────────────────────────── */
 const EncKeyContext = createContext(null);
 
-/* ── Custom Message bubble (decrypts text, renders own UI) ──
-   Defined at module level — stable reference, no crashes.
-   Uses useMessageContext() to read from Stream's channel state.
-   ─────────────────────────────────────────────────────────── */
+/* ── EncryptedImage: downloads encrypted blob → decrypts → shows image ──
+   Fetches via backend proxy (/api/media/download) to avoid CORS issues.
+   ─────────────────────────────────────────────────────────────────────── */
+const EncryptedImage = ({ url }) => {
+  const encKey = useContext(EncKeyContext);
+  const [src, setSrc] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const objUrlRef = useRef(null);
+
+  useEffect(() => {
+    if (!encKey || !url) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Use our backend proxy to avoid CORS
+        const cleanUrl = url.replace("?enc=1", "");
+        const response = await axiosInstance.get("/media/download", {
+          params: { url: cleanUrl },
+          responseType: "arraybuffer",
+        });
+        if (cancelled) return;
+
+        const decrypted = await decryptFileBytes(encKey, new Uint8Array(response.data));
+        if (cancelled) return;
+
+        // Detect image MIME by header bytes
+        const header = new Uint8Array(decrypted).slice(0, 4);
+        let mimeType = "image/jpeg";
+        if (header[0] === 0x89 && header[1] === 0x50) mimeType = "image/png";
+        else if (header[0] === 0x47 && header[1] === 0x49) mimeType = "image/gif";
+        else if (header[0] === 0xff && header[1] === 0xd8) mimeType = "image/jpeg";
+
+        const blob = new Blob([decrypted], { type: mimeType });
+        const objUrl = URL.createObjectURL(blob);
+        objUrlRef.current = objUrl;
+        setSrc(objUrl);
+      } catch (e) {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objUrlRef.current) URL.revokeObjectURL(objUrlRef.current);
+    };
+  }, [url, encKey]);
+
+  if (failed) return <span className="text-xs opacity-50">🔒 Encrypted image</span>;
+  if (!src) return <span className="text-xs opacity-50 animate-pulse">Decrypting image…</span>;
+  return (
+    <img
+      src={src}
+      alt="attachment"
+      className="rounded-lg max-w-[220px] mt-1 cursor-zoom-in"
+    />
+  );
+};
+
+/* ── Custom Message bubble ───────────────────────────────────── */
 const DecryptedMessageUI = () => {
   const { message, isMyMessage } = useMessageContext();
   const encKey = useContext(EncKeyContext);
@@ -46,7 +106,6 @@ const DecryptedMessageUI = () => {
   useEffect(() => {
     const raw = message?.text || "";
     if (!raw) { setDisplayText(""); return; }
-
     if (isEncrypted(raw) && encKey) {
       decryptMessage(encKey, raw).then(setDisplayText);
     } else {
@@ -54,12 +113,7 @@ const DecryptedMessageUI = () => {
     }
   }, [message?.text, encKey]);
 
-  // While decrypting, show nothing (avoids flash of ciphertext)
   if (displayText === null) return null;
-
-  const senderPic = isMine
-    ? message?.user?.image || "/avatar.png"
-    : message?.user?.image || "/avatar.png";
 
   const timeStr = message?.created_at
     ? new Date(message.created_at).toLocaleTimeString([], {
@@ -72,7 +126,11 @@ const DecryptedMessageUI = () => {
     <div className={`flex items-end gap-2 my-1 px-2 ${isMine ? "flex-row-reverse" : "flex-row"}`}>
       {/* Avatar */}
       <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-base-300">
-        <img src={senderPic} alt="avatar" className="w-full h-full object-cover" />
+        <img
+          src={message?.user?.image || "/avatar.png"}
+          alt="avatar"
+          className="w-full h-full object-cover"
+        />
       </div>
 
       {/* Bubble */}
@@ -83,31 +141,36 @@ const DecryptedMessageUI = () => {
             : "bg-base-200 text-base-content rounded-bl-sm"
         }`}
       >
-        {/* Attachment (image) if present */}
-        {message?.attachments?.map((att, i) =>
-          att.image_url ? (
+        {/* Attachments */}
+        {message?.attachments?.map((att, i) => {
+          const imgUrl = att.image_url || att.asset_url;
+          if (!imgUrl) return null;
+          if (isEncryptedMediaUrl(imgUrl)) {
+            return <EncryptedImage key={i} url={imgUrl} />;
+          }
+          return (
             <img
               key={i}
-              src={att.image_url}
+              src={imgUrl}
               alt="attachment"
-              className="rounded-lg max-w-[200px] mb-1"
+              className="rounded-lg max-w-[220px] mt-1"
             />
-          ) : null
-        )}
+          );
+        })}
 
         {/* Text */}
         {displayText ? <span>{displayText}</span> : null}
 
         {/* Timestamp */}
         {timeStr && (
-          <div className={`text-[10px] mt-1 opacity-50 text-right`}>{timeStr}</div>
+          <div className="text-[10px] mt-1 opacity-50 text-right">{timeStr}</div>
         )}
       </div>
     </div>
   );
 };
 
-/* ── Main ChatPage ────────────────────────────────────────── */
+/* ── Main ChatPage ───────────────────────────────────────────── */
 const ChatPage = () => {
   const { id: targetUserId } = useParams();
   const [chatClient, setChatClient] = useState(null);
@@ -115,7 +178,8 @@ const ChatPage = () => {
   const [encKey, setEncKey] = useState(null);
   const [loading, setLoading] = useState(true);
   const [chatError, setChatError] = useState(null);
-  const channelRef = useRef(null); // stable ref for overrideSubmitHandler
+  const channelRef = useRef(null);
+  const encKeyRef = useRef(null); // mirror of encKey state for async handlers
 
   const { authUser } = useAuthUser();
 
@@ -152,12 +216,13 @@ const ChatPage = () => {
 
         const channelId = [authUser._id, targetUserId].sort().join("-");
 
-        // Fetch the AES key for this channel (silently fails if not configured)
+        // Fetch AES key for this channel
         try {
           const keyData = await getChannelEncryptionKey(channelId);
           if (keyData?.key) {
             const cryptoKey = await importAESKey(keyData.key);
             setEncKey(cryptoKey);
+            encKeyRef.current = cryptoKey;
           }
         } catch (e) {
           console.warn("Encryption key unavailable:", e.message);
@@ -194,18 +259,15 @@ const ChatPage = () => {
     };
   }, [tokenData, authUser, targetUserId]);
 
-  /* Encrypt text before sending to Stream */
+  /* Encrypt text before sending */
   const handleSubmit = async (message, cid) => {
     try {
       let text = message.text || "";
-      if (encKey && text.trim()) {
-        text = await encryptMessage(encKey, text);
+      if (encKeyRef.current && text.trim()) {
+        text = await encryptMessage(encKeyRef.current, text);
       }
       if (channelRef.current) {
-        await channelRef.current.sendMessage({
-          ...message,
-          text,
-        });
+        await channelRef.current.sendMessage({ ...message, text });
       }
     } catch (err) {
       console.error("Send failed:", err);
@@ -213,10 +275,30 @@ const ChatPage = () => {
     }
   };
 
-  /* Upload media to Cloudinary instead of Stream's CDN */
+  /* Encrypt image bytes → upload encrypted blob to Cloudinary */
   const handleImageUpload = async (file) => {
-    const data = await uploadChatMedia(file);
-    return { file: data.url }; // Stream expects { file: url }
+    try {
+      if (encKeyRef.current) {
+        // Encrypt file bytes client-side
+        const arrayBuffer = await file.arrayBuffer();
+        const encryptedBytes = await encryptFileBytes(encKeyRef.current, arrayBuffer);
+        const encBlob = new Blob([encryptedBytes], { type: "application/octet-stream" });
+        const encFile = new File([encBlob], file.name + ".enc", {
+          type: "application/octet-stream",
+        });
+        const data = await uploadChatMedia(encFile);
+        // Append ?enc=1 marker so display code knows to decrypt this
+        return { file: data.url + "?enc=1" };
+      } else {
+        // No key yet — upload unencrypted (fallback)
+        const data = await uploadChatMedia(file);
+        return { file: data.url };
+      }
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      toast.error("Image upload failed.");
+      throw err;
+    }
   };
 
   const handleVideoCall = () => {

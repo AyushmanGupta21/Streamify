@@ -73,3 +73,33 @@ export async function decryptMessage(cryptoKey, ciphertext) {
 export function isEncrypted(text) {
   return typeof text === "string" && text.startsWith(ENC_PREFIX);
 }
+
+/** Returns true if a URL points to an encrypted media blob */
+export function isEncryptedMediaUrl(url) {
+  return typeof url === "string" && url.includes("?enc=1");
+}
+
+/**
+ * Encrypt raw file bytes → returns a Uint8Array of: [IV (12 bytes)] + [ciphertext]
+ */
+export async function encryptFileBytes(cryptoKey, arrayBuffer) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    arrayBuffer
+  );
+  const combined = new Uint8Array(12 + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), 12);
+  return combined;
+}
+
+/**
+ * Decrypt a Uint8Array of [IV (12 bytes)] + [ciphertext] → returns decrypted ArrayBuffer
+ */
+export async function decryptFileBytes(cryptoKey, combinedBytes) {
+  const iv = combinedBytes.slice(0, 12);
+  const ct = combinedBytes.slice(12);
+  return await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cryptoKey, ct);
+}
