@@ -81,7 +81,8 @@ const ChatPage = () => {
         setChatError(null);
       } catch (error) {
         console.error("Error initializing chat:", error);
-        setChatError("Could not connect to chat. Please retry.");
+        const detail = error?.message || error?.toString() || "Unknown error";
+        setChatError(`Could not connect to chat: ${detail}`);
         toast.error("Could not connect to chat.");
       } finally {
         setLoading(false);
