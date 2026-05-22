@@ -69,6 +69,12 @@ export async function getStreamToken() {
   return response.data;
 }
 
+export async function getChannelEncryptionKey(channelId) {
+  const response = await axiosInstance.get(`/chat/channel-key/${channelId}`);
+  return response.data; // { key: hexString }
+}
+
+
 export async function updateUserProfile(profileData) {
   const response = await axiosInstance.put("/users/profile", profileData);
   return response.data;
