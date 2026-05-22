@@ -13,6 +13,7 @@ import {
   Thread,
   Window,
 } from "stream-chat-react";
+import { EmojiPicker } from "stream-chat-react/emojis";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 
@@ -142,13 +143,13 @@ const ChatPage = () => {
        On mobile subtract bottom nav too: h-[calc(100vh-4rem-4rem)] */
     <div className="h-[calc(100vh-4rem-4rem)] lg:h-[calc(100vh-4rem)]">
       <Chat client={chatClient}>
-        <Channel channel={channel}>
+        <Channel channel={channel} EmojiPicker={EmojiPicker}>
           <div className="w-full relative h-full">
             <CallButton handleVideoCall={handleVideoCall} />
             <Window>
               <ChannelHeader />
               <MessageList />
-              <MessageInput focus />
+              <MessageInput focus EmojiPicker={EmojiPicker} />
             </Window>
           </div>
           <Thread />
