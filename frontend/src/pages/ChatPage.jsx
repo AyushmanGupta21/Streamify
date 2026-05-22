@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
 import { useQuery } from "@tanstack/react-query";
@@ -9,8 +9,6 @@ import {
   Chat,
   MessageInput,
   MessageList,
-  MessageProvider,
-  MessageSimple,
   Thread,
   Window,
   useMessageContext,
@@ -30,40 +28,82 @@ import {
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
-/* ── Decrypted message renderer ──────────────────────────────
-   Wraps Stream's MessageSimple. Uses MessageProvider to inject
-   a decrypted copy of the message so the original UI is preserved.
+/* ── Encryption key context ────────────────────────────────── */
+import { createContext, useContext } from "react";
+const EncKeyContext = createContext(null);
+
+/* ── Custom Message bubble (decrypts text, renders own UI) ──
+   Defined at module level — stable reference, no crashes.
+   Uses useMessageContext() to read from Stream's channel state.
    ─────────────────────────────────────────────────────────── */
-const DecryptedMessage = ({ encKey }) => {
-  const ctx = useMessageContext();
-  const { message } = ctx;
-  const [decryptedText, setDecryptedText] = useState(null);
+const DecryptedMessageUI = () => {
+  const { message, isMyMessage } = useMessageContext();
+  const encKey = useContext(EncKeyContext);
+  const [displayText, setDisplayText] = useState(null);
+
+  const isMine = isMyMessage?.() ?? false;
 
   useEffect(() => {
-    if (!encKey || !message?.text) {
-      setDecryptedText(message?.text ?? "");
-      return;
-    }
-    if (isEncrypted(message.text)) {
-      decryptMessage(encKey, message.text).then(setDecryptedText);
+    const raw = message?.text || "";
+    if (!raw) { setDisplayText(""); return; }
+
+    if (isEncrypted(raw) && encKey) {
+      decryptMessage(encKey, raw).then(setDisplayText);
     } else {
-      setDecryptedText(message.text);
+      setDisplayText(raw);
     }
-  }, [encKey, message?.text]);
+  }, [message?.text, encKey]);
 
   // While decrypting, show nothing (avoids flash of ciphertext)
-  if (decryptedText === null) return null;
+  if (displayText === null) return null;
 
-  const patchedMessage = {
-    ...message,
-    text: decryptedText,
-    html: `<p>${decryptedText.replace(/</g, "&lt;")}</p>`,
-  };
+  const senderPic = isMine
+    ? message?.user?.image || "/avatar.png"
+    : message?.user?.image || "/avatar.png";
+
+  const timeStr = message?.created_at
+    ? new Date(message.created_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   return (
-    <MessageProvider value={{ ...ctx, message: patchedMessage }}>
-      <MessageSimple />
-    </MessageProvider>
+    <div className={`flex items-end gap-2 my-1 px-2 ${isMine ? "flex-row-reverse" : "flex-row"}`}>
+      {/* Avatar */}
+      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-base-300">
+        <img src={senderPic} alt="avatar" className="w-full h-full object-cover" />
+      </div>
+
+      {/* Bubble */}
+      <div
+        className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm leading-relaxed break-words shadow-sm ${
+          isMine
+            ? "bg-primary text-primary-content rounded-br-sm"
+            : "bg-base-200 text-base-content rounded-bl-sm"
+        }`}
+      >
+        {/* Attachment (image) if present */}
+        {message?.attachments?.map((att, i) =>
+          att.image_url ? (
+            <img
+              key={i}
+              src={att.image_url}
+              alt="attachment"
+              className="rounded-lg max-w-[200px] mb-1"
+            />
+          ) : null
+        )}
+
+        {/* Text */}
+        {displayText ? <span>{displayText}</span> : null}
+
+        {/* Timestamp */}
+        {timeStr && (
+          <div className={`text-[10px] mt-1 opacity-50 text-right`}>{timeStr}</div>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -72,9 +112,10 @@ const ChatPage = () => {
   const { id: targetUserId } = useParams();
   const [chatClient, setChatClient] = useState(null);
   const [channel, setChannel] = useState(null);
+  const [encKey, setEncKey] = useState(null);
   const [loading, setLoading] = useState(true);
   const [chatError, setChatError] = useState(null);
-  const encKeyRef = useRef(null); // AES-GCM CryptoKey stored in a ref
+  const channelRef = useRef(null); // stable ref for overrideSubmitHandler
 
   const { authUser } = useAuthUser();
 
@@ -92,8 +133,6 @@ const ChatPage = () => {
       if (!tokenData?.token || !authUser) return;
 
       try {
-        console.log("Initializing stream chat client...");
-
         const client = StreamChat.getInstance(STREAM_API_KEY);
 
         if (client.userID && client.userID !== authUser._id) {
@@ -113,15 +152,15 @@ const ChatPage = () => {
 
         const channelId = [authUser._id, targetUserId].sort().join("-");
 
-        // Fetch encryption key for this channel from our backend
+        // Fetch the AES key for this channel (silently fails if not configured)
         try {
           const keyData = await getChannelEncryptionKey(channelId);
           if (keyData?.key) {
-            encKeyRef.current = await importAESKey(keyData.key);
-            console.log("🔒 Channel encryption key loaded");
+            const cryptoKey = await importAESKey(keyData.key);
+            setEncKey(cryptoKey);
           }
         } catch (e) {
-          console.warn("Could not load encryption key:", e.message);
+          console.warn("Encryption key unavailable:", e.message);
         }
 
         const currChannel = client.channel("messaging", channelId, {
@@ -129,14 +168,14 @@ const ChatPage = () => {
         });
         await currChannel.watch();
 
+        channelRef.current = currChannel;
         currentClient = client;
         setChatClient(client);
         setChannel(currChannel);
         setChatError(null);
       } catch (error) {
         console.error("Error initializing chat:", error);
-        const detail = error?.message || error?.toString() || "Unknown error";
-        setChatError(`Could not connect to chat: ${detail}`);
+        setChatError(`Could not connect to chat: ${error?.message || "Unknown error"}`);
         toast.error("Could not connect to chat.");
       } finally {
         setLoading(false);
@@ -151,30 +190,35 @@ const ChatPage = () => {
       }
       setChatClient(null);
       setChannel(null);
+      channelRef.current = null;
     };
   }, [tokenData, authUser, targetUserId]);
 
-  /* ── Encrypt message before sending to Stream ────────────── */
-  const handleSubmit = useCallback(
-    async (message, _, sendMessage) => {
-      try {
-        let text = message.text || "";
-        if (encKeyRef.current && text.trim()) {
-          text = await encryptMessage(encKeyRef.current, text);
-        }
-        await sendMessage({ ...message, text });
-      } catch (err) {
-        console.error("Failed to send message:", err);
-        toast.error("Failed to send message.");
+  /* Encrypt text before sending to Stream */
+  const handleSubmit = async (message, cid) => {
+    try {
+      let text = message.text || "";
+      if (encKey && text.trim()) {
+        text = await encryptMessage(encKey, text);
       }
-    },
-    []
-  );
+      if (channelRef.current) {
+        await channelRef.current.sendMessage({
+          ...message,
+          text,
+        });
+      }
+    } catch (err) {
+      console.error("Send failed:", err);
+      toast.error("Failed to send message.");
+    }
+  };
 
   const handleVideoCall = () => {
-    if (channel) {
-      const callUrl = `${window.location.origin}/call/${channel.id}`;
-      channel.sendMessage({ text: `I've started a video call. Join me here: ${callUrl}` });
+    if (channelRef.current) {
+      const callUrl = `${window.location.origin}/call/${channelRef.current.id}`;
+      channelRef.current.sendMessage({
+        text: `I've started a video call. Join me here: ${callUrl}`,
+      });
       toast.success("Video call link sent successfully!");
     }
   };
@@ -195,36 +239,31 @@ const ChatPage = () => {
     );
   }
 
-  /* Stable Message component that captures the encryption key ref */
-  const MessageWithDecryption = useCallback(
-    () => <DecryptedMessage encKey={encKeyRef.current} />,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
-
   return (
     <div className="h-[calc(100vh-4rem-4rem)] lg:h-[calc(100vh-4rem)]">
-      <Chat client={chatClient}>
-        <Channel
-          channel={channel}
-          EmojiPicker={EmojiPicker}
-          Message={MessageWithDecryption}
-        >
-          <div className="w-full relative h-full">
-            <CallButton handleVideoCall={handleVideoCall} />
-            <Window>
-              <ChannelHeader />
-              <MessageList />
-              <MessageInput
-                focus
-                EmojiPicker={EmojiPicker}
-                overrideSubmitHandler={handleSubmit}
-              />
-            </Window>
-          </div>
-          <Thread />
-        </Channel>
-      </Chat>
+      <EncKeyContext.Provider value={encKey}>
+        <Chat client={chatClient}>
+          <Channel
+            channel={channel}
+            EmojiPicker={EmojiPicker}
+            Message={DecryptedMessageUI}
+          >
+            <div className="w-full relative h-full">
+              <CallButton handleVideoCall={handleVideoCall} />
+              <Window>
+                <ChannelHeader />
+                <MessageList />
+                <MessageInput
+                  focus
+                  EmojiPicker={EmojiPicker}
+                  overrideSubmitHandler={handleSubmit}
+                />
+              </Window>
+            </div>
+            <Thread />
+          </Channel>
+        </Chat>
+      </EncKeyContext.Provider>
     </div>
   );
 };
