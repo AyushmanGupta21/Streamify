@@ -39,6 +39,8 @@ const ChatPage = () => {
   });
 
   useEffect(() => {
+    let currentClient = null;
+
     const initChat = async () => {
       if (!tokenData?.token || !authUser) return;
 
@@ -47,21 +49,25 @@ const ChatPage = () => {
 
         const client = StreamChat.getInstance(STREAM_API_KEY);
 
-        await client.connectUser(
-          {
-            id: authUser._id,
-            name: authUser.fullName,
-            image: authUser.profilePic,
-          },
-          tokenData.token
-        );
+        // If there's already a connected user that is NOT the current user,
+        // disconnect them first (singleton re-use after logout/account switch).
+        if (client.userID && client.userID !== authUser._id) {
+          await client.disconnectUser();
+        }
 
-        //
+        // Only call connectUser if not already connected as this user
+        if (!client.userID) {
+          await client.connectUser(
+            {
+              id: authUser._id,
+              name: authUser.fullName,
+              image: authUser.profilePic,
+            },
+            tokenData.token
+          );
+        }
+
         const channelId = [authUser._id, targetUserId].sort().join("-");
-
-        // you and me
-        // if i start the chat => channelId: [myId, yourId]
-        // if you start the chat => channelId: [yourId, myId]  => [myId,yourId]
 
         const currChannel = client.channel("messaging", channelId, {
           members: [authUser._id, targetUserId],
@@ -69,12 +75,13 @@ const ChatPage = () => {
 
         await currChannel.watch();
 
+        currentClient = client;
         setChatClient(client);
         setChannel(currChannel);
         setChatError(null);
       } catch (error) {
         console.error("Error initializing chat:", error);
-        setChatError("Could not connect to chat. The server may be waking up — please retry.");
+        setChatError("Could not connect to chat. Please retry.");
         toast.error("Could not connect to chat.");
       } finally {
         setLoading(false);
@@ -82,6 +89,15 @@ const ChatPage = () => {
     };
 
     initChat();
+
+    // Cleanup: disconnect when leaving chat page
+    return () => {
+      if (currentClient?.userID) {
+        currentClient.disconnectUser().catch(console.error);
+      }
+      setChatClient(null);
+      setChannel(null);
+    };
   }, [tokenData, authUser, targetUserId]);
 
   const handleVideoCall = () => {
