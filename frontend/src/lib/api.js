@@ -89,3 +89,18 @@ export async function removeFriend(friendId) {
   const response = await axiosInstance.delete(`/users/friend/${friendId}`);
   return response.data;
 }
+
+/**
+ * Upload an image/video for chat to Cloudinary via our backend.
+ * Returns { url } — the Cloudinary secure URL.
+ * This bypasses Stream's CDN so media is stored on YOUR Cloudinary account.
+ */
+export async function uploadChatMedia(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await axiosInstance.post("/media/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data; // { url, publicId, resourceType, width, height }
+}
+

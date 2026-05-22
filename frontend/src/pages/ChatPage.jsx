@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
 import { useQuery } from "@tanstack/react-query";
-import { getStreamToken, getChannelEncryptionKey } from "../lib/api";
+import { getStreamToken, getChannelEncryptionKey, uploadChatMedia } from "../lib/api";
 import {
   Channel,
   ChannelHeader,
@@ -213,6 +213,12 @@ const ChatPage = () => {
     }
   };
 
+  /* Upload media to Cloudinary instead of Stream's CDN */
+  const handleImageUpload = async (file) => {
+    const data = await uploadChatMedia(file);
+    return { file: data.url }; // Stream expects { file: url }
+  };
+
   const handleVideoCall = () => {
     if (channelRef.current) {
       const callUrl = `${window.location.origin}/call/${channelRef.current.id}`;
@@ -257,6 +263,8 @@ const ChatPage = () => {
                   focus
                   EmojiPicker={EmojiPicker}
                   overrideSubmitHandler={handleSubmit}
+                  doImageUploadRequest={handleImageUpload}
+                  doFileUploadRequest={handleImageUpload}
                 />
               </Window>
             </div>
