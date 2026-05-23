@@ -10,18 +10,29 @@
 }
 
 /* ─── Stream Video SDK overrides ──────────────────────────────
-   Force video participant views to fill their containers fully. */
+   Main participant area: CONTAIN so portrait (mobile) video shows
+   fully without cropping — black letterbox bars on sides, like Meet. */
 .str-video__participant-view,
-.str-video__participant-view video,
-.str-video__screen-share-overlay,
 [class*="str-video__participant"] {
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
+}
+
+/* Main video: contain = full frame, no crop, black bars fill gaps */
+.str-video__participant-view video {
+  object-fit: contain !important;
+  background: #000 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* PiP self-view: cover is fine — it's small and you know what you look like */
+.pip-area .str-video__participant-view video {
   object-fit: cover !important;
 }
 
-/* Screen share track should use 'contain' to show full screen without cropping */
+/* Screen share track: always contain so full screen is visible */
 .str-video__screen-share-overlay video,
 [data-track-type="screenShareTrack"] video {
   object-fit: contain !important;

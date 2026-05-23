@@ -216,7 +216,8 @@ const CallContent = () => {
   // smaller default on mobile (detect via window width at mount)
   const isMobile = window.innerWidth < 640;
   const [pipPos, setPipPos] = useState({ right: 12, bottom: 80 });
-  const [pipSize, setPipSize] = useState({ w: isMobile ? 120 : 200, h: isMobile ? 80 : 140 });
+  // Portrait PiP: taller than wide on mobile (matches front camera 3:4 ratio)
+  const [pipSize, setPipSize] = useState({ w: isMobile ? 90 : 160, h: isMobile ? 130 : 120 });
   const pipRef = useRef(null);
   const containerRef = useRef(null);
   const isDragging = useRef(false);
@@ -367,24 +368,30 @@ const CallContent = () => {
       {/* ── Main video area ── */}
       <div className="relative flex-1 overflow-hidden" style={{ padding: 8 }}>
         {remoteParticipants.length === 0 ? (
-          /* Alone — show yourself big */
-          <div className="absolute inset-0 m-2 rounded-2xl overflow-hidden">
+          /* Alone — show yourself, contain so portrait front cam is fully visible */
+          <div className="absolute inset-0 m-1 rounded-2xl overflow-hidden bg-black">
             {localParticipant && (
               <ParticipantView
                 participant={localParticipant}
                 trackType="videoTrack"
+                ParticipantViewUI={NoOverlay}
                 style={{ width: "100%", height: "100%" }}
               />
             )}
           </div>
         ) : remoteParticipants.length === 1 ? (
-          /* One remote — full area */
-          <div className="absolute inset-0 m-2 rounded-2xl overflow-hidden">
+          /* One remote — full area, contain preserves portrait aspect ratio */
+          <div className="absolute inset-0 m-1 rounded-2xl overflow-hidden bg-black flex items-center justify-center">
             <ParticipantView
               participant={remoteParticipants[0]}
               trackType="videoTrack"
+              ParticipantViewUI={NoOverlay}
               style={{ width: "100%", height: "100%" }}
             />
+            {/* Name label */}
+            <div className="absolute bottom-3 left-3 px-2 py-0.5 rounded-lg bg-black/50 text-white text-sm font-medium">
+              {remoteParticipants[0].name || "Guest"}
+            </div>
           </div>
         ) : (
           /* Multiple remotes — grid */
@@ -413,7 +420,7 @@ const CallContent = () => {
             onPointerDown={onPipPointerDown}
             onPointerMove={onPipPointerMove}
             onPointerUp={onPipPointerUp}
-            className="absolute rounded-xl overflow-hidden border-2 cursor-grab active:cursor-grabbing group"
+            className="pip-area absolute rounded-xl overflow-hidden border-2 cursor-grab active:cursor-grabbing"
             style={{
               right: pipPos.right,
               bottom: pipPos.bottom,
