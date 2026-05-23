@@ -165,6 +165,33 @@ const QuickReactionPicker = ({ onPick, onClose }) => (
   </div>
 );
 
+/* ── URL → clickable link renderer ─────────────────────────── */
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+const renderTextWithLinks = (text, isMine) => {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return parts.map((part, i) => {
+    if (URL_REGEX.test(part)) {
+      URL_REGEX.lastIndex = 0; // reset regex state
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`underline underline-offset-2 break-all ${
+            isMine ? "text-primary-content/90 hover:text-white" : "text-primary hover:text-primary/70"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    return part ? <span key={i}>{part}</span> : null;
+  });
+};
+
 /* ── MessageBubble ──────────────────────────────────────────── */
 const MessageBubble = ({ msg, isMine, encKey, authUserId, onReply, onEdit, onDelete, onReact, conversationId }) => {
   const [showActions, setShowActions] = useState(false);
@@ -231,7 +258,9 @@ const MessageBubble = ({ msg, isMine, encKey, authUserId, onReply, onEdit, onDel
                   ? <EncryptedImage key={i} url={att.url} encKey={encKey} />
                   : <PlainMedia key={i} url={att.url} />
               )}
-              {displayText !== null && displayText !== "" && <span>{displayText}</span>}
+              {displayText !== null && displayText !== "" && (
+                <span className="whitespace-pre-wrap">{renderTextWithLinks(displayText, isMine)}</span>
+              )}
               <div className="flex items-center gap-1 mt-1 justify-end">
                 {msg.editedAt && <span className="text-[9px] opacity-40">(edited)</span>}
                 <span className="text-[10px] opacity-50">{timeStr}</span>
