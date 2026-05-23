@@ -1,6 +1,16 @@
 import User from "../models/User.js";
 import FriendRequest from "../models/FriendRequest.js";
 
+export async function getUserById(req, res) {
+  try {
+    const user = await User.findById(req.params.id).select("fullName profilePic _id").lean();
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
 export async function getRecommendedUsers(req, res) {
   try {
     const currentUserId = req.user.id;

@@ -101,6 +101,14 @@ export async function uploadChatMedia(file) {
   const response = await axiosInstance.post("/media/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return response.data; // { url, publicId, resourceType, width, height }
+  return response.data;
 }
+
+/** Fetch last 50 messages for a conversation from MongoDB */
+export async function getMessages(conversationId, before = null) {
+  const params = before ? { before } : {};
+  const response = await axiosInstance.get(`/messages/${conversationId}`, { params });
+  return response.data;
+}
+
 

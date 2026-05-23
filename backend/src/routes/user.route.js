@@ -6,6 +6,7 @@ import {
   getMyFriends,
   getOutgoingFriendReqs,
   getRecommendedUsers,
+  getUserById,
   lookupUserByEmail,
   removeFriend,
   sendFriendRequest,
@@ -32,5 +33,6 @@ router.get("/friend-requests", getFriendRequests);
 router.get("/outgoing-friend-requests", getOutgoingFriendReqs);
 
 router.put("/profile", updateProfile);
+router.get("/:id", getUserById);           // GET /api/users/:id — fetch user by ID
 
 export default router;
