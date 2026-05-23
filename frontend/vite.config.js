@@ -12,27 +12,31 @@ export default defineConfig({
 
       // Web App Manifest — controls how the app looks when installed
       manifest: {
+        id: 'com.streamify.app',
         name: 'Streamify',
         short_name: 'Streamify',
-        description: 'Video calls & encrypted messaging',
+        description: 'Encrypted video calls & private messaging',
         start_url: '/',
-        display: 'standalone',          // No browser UI — feels like a real app
+        display: 'standalone',
         orientation: 'portrait',
         background_color: '#0f0f0f',
-        theme_color: '#e91e8c',          // Pink (matches primary color)
+        theme_color: '#e91e8c',
         lang: 'en',
         icons: [
+          { src: '/icon-72.png',  sizes: '72x72',   type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-96.png',  sizes: '96x96',   type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-128.png', sizes: '128x128', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-144.png', sizes: '144x144', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-152.png', sizes: '152x152', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-384.png', sizes: '384x384', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+        screenshots: [
           {
-            src: '/icon-192.png',
-            sizes: '192x192',
+            src: '/screenshot-for-readme.png',
             type: 'image/png',
-            purpose: 'any maskable',
-          },
-          {
-            src: '/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable',
+            label: 'Streamify home screen',
           },
         ],
         categories: ['communication', 'social'],
