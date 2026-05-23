@@ -84,13 +84,9 @@ io.on("connection", (socket) => {
   // Send a message
   socket.on("send_message", async (data, ack) => {
     try {
-      const { conversationId, text, attachments = [] } = data;
-
-      // Validate sender is part of conversation
+      const { conversationId, text, attachments = [], replyTo = null } = data;
       const ids = conversationId.split("-");
-      if (!ids.includes(userId)) {
-        return ack?.({ error: "Unauthorized" });
-      }
+      if (!ids.includes(userId)) return ack?.({ error: "Unauthorized" });
 
       const sender = await User.findById(userId).select("fullName profilePic _id").lean();
 
@@ -99,6 +95,7 @@ io.on("connection", (socket) => {
         senderId: userId,
         text: text || "",
         attachments,
+        replyTo: replyTo || undefined,
       });
 
       const payload = {
@@ -107,15 +104,97 @@ io.on("connection", (socket) => {
         senderId: { _id: sender._id, fullName: sender.fullName, profilePic: sender.profilePic },
         text: message.text,
         attachments: message.attachments,
+        reactions: [],
+        replyTo: message.replyTo || null,
+        deleted: false,
+        editedAt: null,
         createdAt: message.createdAt,
       };
 
-      // Emit to everyone in the conversation room (including sender)
       io.to(conversationId).emit("new_message", payload);
       ack?.({ ok: true, message: payload });
     } catch (err) {
       console.error("send_message error:", err.message);
       ack?.({ error: "Failed to send" });
+    }
+  });
+
+  // Edit own message
+  socket.on("edit_message", async (data, ack) => {
+    try {
+      const { messageId, conversationId, newText } = data;
+      const message = await Message.findOne({ _id: messageId, senderId: userId, deleted: false });
+      if (!message) return ack?.({ error: "Not found or unauthorized" });
+
+      message.text = newText;
+      message.editedAt = new Date();
+      await message.save();
+
+      io.to(conversationId).emit("message_edited", {
+        messageId,
+        text: newText,
+        editedAt: message.editedAt,
+      });
+      ack?.({ ok: true });
+    } catch (err) {
+      console.error("edit_message error:", err.message);
+      ack?.({ error: "Failed to edit" });
+    }
+  });
+
+  // Delete own message (soft delete — removes for everyone)
+  socket.on("delete_message", async (data, ack) => {
+    try {
+      const { messageId, conversationId } = data;
+      const message = await Message.findOne({ _id: messageId, senderId: userId });
+      if (!message) return ack?.({ error: "Not found or unauthorized" });
+
+      message.deleted = true;
+      message.text = "";
+      message.attachments = [];
+      message.replyTo = undefined;
+      await message.save();
+
+      io.to(conversationId).emit("message_deleted", { messageId });
+      ack?.({ ok: true });
+    } catch (err) {
+      console.error("delete_message error:", err.message);
+      ack?.({ error: "Failed to delete" });
+    }
+  });
+
+  // Add or toggle a reaction on any message
+  socket.on("add_reaction", async (data, ack) => {
+    try {
+      const { messageId, conversationId, emoji } = data;
+      const message = await Message.findOne({ _id: messageId, deleted: false });
+      if (!message) return ack?.({ error: "Message not found" });
+
+      const existing = message.reactions.find(
+        (r) => r.userId === userId && r.emoji === emoji
+      );
+
+      if (existing) {
+        // Toggle off — remove reaction
+        message.reactions = message.reactions.filter(
+          (r) => !(r.userId === userId && r.emoji === emoji)
+        );
+      } else {
+        // Replace any other emoji from this user first (one reaction per user)
+        message.reactions = message.reactions.filter((r) => r.userId !== userId);
+        message.reactions.push({ userId, emoji });
+      }
+
+      await message.save();
+
+      io.to(conversationId).emit("reaction_updated", {
+        messageId,
+        reactions: message.reactions,
+      });
+      ack?.({ ok: true });
+    } catch (err) {
+      console.error("add_reaction error:", err.message);
+      ack?.({ error: "Failed to react" });
     }
   });
 
