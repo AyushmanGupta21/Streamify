@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
-import { useQuery } from "@tanstack/react-query";
-import { getStreamToken, getChannelEncryptionKey, uploadChatMedia, getMessages } from "../lib/api";
-import { getSocket, useSocket } from "../hooks/useSocket";
-import { StreamChat } from "stream-chat";
+import { getChannelEncryptionKey, uploadChatMedia, getMessages } from "../lib/api";
+import { getSocket } from "../hooks/useSocket";
 import toast from "react-hot-toast";
 import {
   Send, Smile, Paperclip, VideoIcon, X, ZoomIn,
@@ -348,7 +346,7 @@ const ChatPage = () => {
 
   // Socket event handlers
   const onMessage = useCallback((msg) => {
-    setMessages((prev) => prev.some((m) => m._id === msg._id) ? prev : [...prev, msg]);
+    setMessages((prev) => prev.some((m) => String(m._id) === String(msg._id)) ? prev : [...prev, msg]);
   }, []);
 
   const onTypingStart = useCallback(({ userId }) => {
@@ -360,32 +358,39 @@ const ChatPage = () => {
   }, [authUser?._id]);
 
   const onMessageEdited = useCallback(({ messageId, text, editedAt }) => {
-    setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, text, editedAt } : m));
+    setMessages((prev) => prev.map((m) => String(m._id) === String(messageId) ? { ...m, text, editedAt } : m));
   }, []);
 
   const onMessageDeleted = useCallback(({ messageId }) => {
-    setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, deleted: true, text: "", attachments: [], replyTo: null } : m));
+    setMessages((prev) => prev.map((m) => String(m._id) === String(messageId) ? { ...m, deleted: true, text: "", attachments: [], replyTo: null } : m));
   }, []);
 
   const onReactionUpdated = useCallback(({ messageId, reactions }) => {
-    setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, reactions } : m));
+    setMessages((prev) => prev.map((m) => String(m._id) === String(messageId) ? { ...m, reactions } : m));
   }, []);
 
-  useSocket(conversationId, { onMessage, onTypingStart, onTypingStop });
-
-  // Extra socket listeners (edit/delete/react don't go through useSocket hook)
+  // Single consolidated useEffect for ALL socket listeners
   useEffect(() => {
     if (!conversationId) return;
     const socket = getSocket();
+
+    socket.emit("join_conversation", conversationId);
+    socket.on("new_message", onMessage);
+    socket.on("typing_start", onTypingStart);
+    socket.on("typing_stop", onTypingStop);
     socket.on("message_edited", onMessageEdited);
     socket.on("message_deleted", onMessageDeleted);
     socket.on("reaction_updated", onReactionUpdated);
+
     return () => {
+      socket.off("new_message", onMessage);
+      socket.off("typing_start", onTypingStart);
+      socket.off("typing_stop", onTypingStop);
       socket.off("message_edited", onMessageEdited);
       socket.off("message_deleted", onMessageDeleted);
       socket.off("reaction_updated", onReactionUpdated);
     };
-  }, [conversationId, onMessageEdited, onMessageDeleted, onReactionUpdated]);
+  }, [conversationId, onMessage, onTypingStart, onTypingStop, onMessageEdited, onMessageDeleted, onReactionUpdated]);
 
   // Fetch target user info
   useEffect(() => {
@@ -425,28 +430,20 @@ const ChatPage = () => {
     return () => document.removeEventListener("mousedown", fn);
   }, [showEmoji]);
 
-  // Stream Video token (for video calls)
-  const { data: tokenData } = useQuery({
-    queryKey: ["streamToken"],
-    queryFn: getStreamToken,
-    enabled: !!authUser,
-    retry: 2,
-  });
-
+  // Video call — send link as a regular chat message via Socket.io
   const handleVideoCall = async () => {
-    if (!tokenData?.token || !authUser) return;
-    try {
-      const client = StreamChat.getInstance(STREAM_API_KEY);
-      if (!client.userID) {
-        const safeImage = authUser.profilePic && !authUser.profilePic.startsWith("data:") ? authUser.profilePic : "";
-        await client.connectUser({ id: authUser._id, name: authUser.fullName, image: safeImage }, tokenData.token);
-      }
-      const channel = client.channel("messaging", conversationId, { members: [authUser._id, targetUserId] });
-      await channel.watch();
-      const callUrl = `${window.location.origin}/call/${conversationId}`;
-      await channel.sendMessage({ text: `I've started a video call. Join me here: ${callUrl}` });
-      toast.success("Video call link sent!");
-    } catch (err) { toast.error("Could not start video call."); }
+    if (!conversationId) return;
+    const callUrl = `${window.location.origin}/call/${conversationId}`;
+    const msgText = `📹 Video call started! Join here: ${callUrl}`;
+    // Send via Socket.io so it appears in the chat for both users
+    getSocket().emit("send_message", {
+      conversationId,
+      text: msgText,   // not encrypted — it's a URL, fine to keep plain
+      attachments: [],
+    });
+    // Open the call in a new tab for the caller
+    window.open(callUrl, "_blank");
+    toast.success("Video call started! Link sent in chat.");
   };
 
   // Typing indicator
