@@ -107,12 +107,19 @@ const CallPage = () => {
     const initCall = async () => {
       if (!tokenData?.token || !authUser || !callId) return;
       try {
+        // Guard: Stream cannot handle base64 data: URIs as user images.
+        // If the profilePic is a data URI (gallery upload), pass empty string instead.
+        const safeImage =
+          authUser.profilePic && !authUser.profilePic.startsWith("data:")
+            ? authUser.profilePic
+            : "";
+
         const videoClient = new StreamVideoClient({
           apiKey: STREAM_API_KEY,
           user: {
             id: authUser._id,
             name: authUser.fullName,
-            image: authUser.profilePic,
+            image: safeImage,
           },
           token: tokenData.token,
         });
