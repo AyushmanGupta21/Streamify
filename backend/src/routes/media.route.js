@@ -7,9 +7,8 @@ const router = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB max
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB max (for videos)
   fileFilter: (req, file, cb) => {
-    // Allow images, videos, and encrypted blobs (application/octet-stream)
     const ok =
       file.mimetype.startsWith("image/") ||
       file.mimetype.startsWith("video/") ||

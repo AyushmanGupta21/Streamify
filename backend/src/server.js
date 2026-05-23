@@ -26,7 +26,9 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "200mb", extended: true }));
+
 app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);

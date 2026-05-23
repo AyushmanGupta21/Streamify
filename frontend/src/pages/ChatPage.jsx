@@ -17,6 +17,7 @@ import { EmojiPicker } from "stream-chat-react/emojis";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 import { createContext, useContext } from "react";
+import { X, ZoomIn } from "lucide-react";
 
 import ChatLoader from "../components/ChatLoader";
 import CallButton from "../components/CallButton";
@@ -33,16 +34,56 @@ import { axiosInstance } from "../lib/axios";
 
 const STREAM_API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
-/* ── Encryption key context ─────────────────────────────────── */
+/* ── Contexts ───────────────────────────────────────────────── */
 const EncKeyContext = createContext(null);
 
-/* ── EncryptedImage: downloads encrypted blob → decrypts → shows image ──
-   Fetches via backend proxy (/api/media/download) to avoid CORS issues.
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Lightbox — fullscreen image/video viewer ───────────────── */
+const Lightbox = ({ src, mimeType, onClose }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isVideo = mimeType?.startsWith("video/");
+
+  return (
+    <div
+      className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <button
+        className="absolute top-4 right-4 btn btn-circle btn-sm bg-white/10 border-none text-white hover:bg-white/20"
+        onClick={onClose}
+      >
+        <X className="w-4 h-4" />
+      </button>
+      <div onClick={(e) => e.stopPropagation()} className="max-w-full max-h-full flex items-center justify-center">
+        {isVideo ? (
+          <video
+            src={src}
+            controls
+            autoPlay
+            className="max-h-[90vh] max-w-[90vw] rounded-xl"
+          />
+        ) : (
+          <img
+            src={src}
+            alt="Full view"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ── EncryptedImage: fetches encrypted blob → decrypts → shows ─ */
 const EncryptedImage = ({ url }) => {
   const encKey = useContext(EncKeyContext);
   const [src, setSrc] = useState(null);
   const [failed, setFailed] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const objUrlRef = useRef(null);
 
   useEffect(() => {
@@ -51,7 +92,6 @@ const EncryptedImage = ({ url }) => {
 
     (async () => {
       try {
-        // Use our backend proxy to avoid CORS
         const cleanUrl = url.replace("?enc=1", "");
         const response = await axiosInstance.get("/media/download", {
           params: { url: cleanUrl },
@@ -62,18 +102,18 @@ const EncryptedImage = ({ url }) => {
         const decrypted = await decryptFileBytes(encKey, new Uint8Array(response.data));
         if (cancelled) return;
 
-        // Detect image MIME by header bytes
-        const header = new Uint8Array(decrypted).slice(0, 4);
-        let mimeType = "image/jpeg";
-        if (header[0] === 0x89 && header[1] === 0x50) mimeType = "image/png";
-        else if (header[0] === 0x47 && header[1] === 0x49) mimeType = "image/gif";
-        else if (header[0] === 0xff && header[1] === 0xd8) mimeType = "image/jpeg";
+        // Detect MIME from header bytes
+        const h = new Uint8Array(decrypted).slice(0, 4);
+        let mime = "image/jpeg";
+        if (h[0] === 0x89 && h[1] === 0x50) mime = "image/png";
+        else if (h[0] === 0x47 && h[1] === 0x49) mime = "image/gif";
+        else if (h[0] === 0x52 && h[1] === 0x49) mime = "image/webp";
 
-        const blob = new Blob([decrypted], { type: mimeType });
+        const blob = new Blob([decrypted], { type: mime });
         const objUrl = URL.createObjectURL(blob);
         objUrlRef.current = objUrl;
         setSrc(objUrl);
-      } catch (e) {
+      } catch {
         if (!cancelled) setFailed(true);
       }
     })();
@@ -85,13 +125,64 @@ const EncryptedImage = ({ url }) => {
   }, [url, encKey]);
 
   if (failed) return <span className="text-xs opacity-50">🔒 Encrypted image</span>;
-  if (!src) return <span className="text-xs opacity-50 animate-pulse">Decrypting image…</span>;
+  if (!src) return (
+    <div className="w-[180px] h-[120px] rounded-xl bg-black/10 animate-pulse flex items-center justify-center text-xs opacity-40">
+      Decrypting…
+    </div>
+  );
+
   return (
-    <img
-      src={src}
-      alt="attachment"
-      className="rounded-lg max-w-[220px] mt-1 cursor-zoom-in"
-    />
+    <>
+      <button
+        type="button"
+        className="relative group rounded-xl overflow-hidden block mt-1 focus:outline-none"
+        onClick={() => setLightbox(true)}
+      >
+        <img
+          src={src}
+          alt="attachment"
+          className="max-w-[220px] rounded-xl block"
+        />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition-all">
+          <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+        </div>
+      </button>
+      {lightbox && <Lightbox src={src} onClose={() => setLightbox(false)} />}
+    </>
+  );
+};
+
+/* ── PlainImage: for unencrypted Cloudinary images ─────────── */
+const PlainImage = ({ url, mimeType }) => {
+  const [lightbox, setLightbox] = useState(false);
+  const isVideo = mimeType?.startsWith("video/") || url?.includes(".mp4") || url?.includes(".mov");
+
+  return (
+    <>
+      <button
+        type="button"
+        className="relative group rounded-xl overflow-hidden block mt-1 focus:outline-none"
+        onClick={() => setLightbox(true)}
+      >
+        {isVideo ? (
+          <video
+            src={url}
+            preload="metadata"
+            className="max-w-[220px] rounded-xl block"
+          />
+        ) : (
+          <img
+            src={url}
+            alt="attachment"
+            className="max-w-[220px] rounded-xl block"
+          />
+        )}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition-all">
+          <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow" />
+        </div>
+      </button>
+      {lightbox && <Lightbox src={url} mimeType={mimeType} onClose={() => setLightbox(false)} />}
+    </>
   );
 };
 
@@ -116,24 +207,15 @@ const DecryptedMessageUI = () => {
   if (displayText === null) return null;
 
   const timeStr = message?.created_at
-    ? new Date(message.created_at).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+    ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
 
   return (
     <div className={`flex items-end gap-2 my-1 px-2 ${isMine ? "flex-row-reverse" : "flex-row"}`}>
-      {/* Avatar */}
       <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-base-300">
-        <img
-          src={message?.user?.image || "/avatar.png"}
-          alt="avatar"
-          className="w-full h-full object-cover"
-        />
+        <img src={message?.user?.image || "/avatar.png"} alt="avatar" className="w-full h-full object-cover" />
       </div>
 
-      {/* Bubble */}
       <div
         className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm leading-relaxed break-words shadow-sm ${
           isMine
@@ -141,27 +223,19 @@ const DecryptedMessageUI = () => {
             : "bg-base-200 text-base-content rounded-bl-sm"
         }`}
       >
-        {/* Attachments */}
         {message?.attachments?.map((att, i) => {
           const imgUrl = att.image_url || att.asset_url;
+          const mime = att.mime_type || att.type;
           if (!imgUrl) return null;
+
           if (isEncryptedMediaUrl(imgUrl)) {
             return <EncryptedImage key={i} url={imgUrl} />;
           }
-          return (
-            <img
-              key={i}
-              src={imgUrl}
-              alt="attachment"
-              className="rounded-lg max-w-[220px] mt-1"
-            />
-          );
+          return <PlainImage key={i} url={imgUrl} mimeType={mime} />;
         })}
 
-        {/* Text */}
         {displayText ? <span>{displayText}</span> : null}
 
-        {/* Timestamp */}
         {timeStr && (
           <div className="text-[10px] mt-1 opacity-50 text-right">{timeStr}</div>
         )}
@@ -179,7 +253,7 @@ const ChatPage = () => {
   const [loading, setLoading] = useState(true);
   const [chatError, setChatError] = useState(null);
   const channelRef = useRef(null);
-  const encKeyRef = useRef(null); // mirror of encKey state for async handlers
+  const encKeyRef = useRef(null);
 
   const { authUser } = useAuthUser();
 
@@ -216,7 +290,6 @@ const ChatPage = () => {
 
         const channelId = [authUser._id, targetUserId].sort().join("-");
 
-        // Fetch AES key for this channel
         try {
           const keyData = await getChannelEncryptionKey(channelId);
           if (keyData?.key) {
@@ -250,9 +323,7 @@ const ChatPage = () => {
     initChat();
 
     return () => {
-      if (currentClient?.userID) {
-        currentClient.disconnectUser().catch(console.error);
-      }
+      if (currentClient?.userID) currentClient.disconnectUser().catch(console.error);
       setChatClient(null);
       setChannel(null);
       channelRef.current = null;
@@ -275,28 +346,31 @@ const ChatPage = () => {
     }
   };
 
-  /* Encrypt image bytes → upload encrypted blob to Cloudinary */
-  const handleImageUpload = async (file) => {
+  /**
+   * Media upload handler:
+   * - Images → encrypt bytes → upload as encrypted blob → mark with ?enc=1
+   * - Videos → upload directly (no encryption — too large for in-browser encryption)
+   */
+  const handleMediaUpload = async (file) => {
     try {
-      if (encKeyRef.current) {
-        // Encrypt file bytes client-side
+      const isVideo = file.type.startsWith("video/");
+
+      if (!isVideo && encKeyRef.current) {
+        // Encrypt image bytes
         const arrayBuffer = await file.arrayBuffer();
         const encryptedBytes = await encryptFileBytes(encKeyRef.current, arrayBuffer);
         const encBlob = new Blob([encryptedBytes], { type: "application/octet-stream" });
-        const encFile = new File([encBlob], file.name + ".enc", {
-          type: "application/octet-stream",
-        });
+        const encFile = new File([encBlob], file.name + ".enc", { type: "application/octet-stream" });
         const data = await uploadChatMedia(encFile);
-        // Append ?enc=1 marker so display code knows to decrypt this
         return { file: data.url + "?enc=1" };
       } else {
-        // No key yet — upload unencrypted (fallback)
+        // Videos → upload directly (no in-browser encryption)
         const data = await uploadChatMedia(file);
         return { file: data.url };
       }
     } catch (err) {
-      console.error("Image upload failed:", err);
-      toast.error("Image upload failed.");
+      console.error("Media upload failed:", err);
+      toast.error("Upload failed. Try a smaller file.");
       throw err;
     }
   };
@@ -304,9 +378,7 @@ const ChatPage = () => {
   const handleVideoCall = () => {
     if (channelRef.current) {
       const callUrl = `${window.location.origin}/call/${channelRef.current.id}`;
-      channelRef.current.sendMessage({
-        text: `I've started a video call. Join me here: ${callUrl}`,
-      });
+      channelRef.current.sendMessage({ text: `I've started a video call. Join me here: ${callUrl}` });
       toast.success("Video call link sent successfully!");
     }
   };
@@ -317,12 +389,8 @@ const ChatPage = () => {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-4 px-6 text-center">
         <p className="text-error font-semibold text-lg">Connection Failed</p>
-        <p className="text-base-content/60 text-sm max-w-sm">
-          {chatError || "Could not connect to chat."}
-        </p>
-        <button onClick={() => window.location.reload()} className="btn btn-primary btn-sm">
-          Retry
-        </button>
+        <p className="text-base-content/60 text-sm max-w-sm">{chatError || "Could not connect to chat."}</p>
+        <button onClick={() => window.location.reload()} className="btn btn-primary btn-sm">Retry</button>
       </div>
     );
   }
@@ -331,11 +399,7 @@ const ChatPage = () => {
     <div className="h-[calc(100vh-4rem-4rem)] lg:h-[calc(100vh-4rem)]">
       <EncKeyContext.Provider value={encKey}>
         <Chat client={chatClient}>
-          <Channel
-            channel={channel}
-            EmojiPicker={EmojiPicker}
-            Message={DecryptedMessageUI}
-          >
+          <Channel channel={channel} EmojiPicker={EmojiPicker} Message={DecryptedMessageUI}>
             <div className="w-full relative h-full">
               <CallButton handleVideoCall={handleVideoCall} />
               <Window>
@@ -345,8 +409,8 @@ const ChatPage = () => {
                   focus
                   EmojiPicker={EmojiPicker}
                   overrideSubmitHandler={handleSubmit}
-                  doImageUploadRequest={handleImageUpload}
-                  doFileUploadRequest={handleImageUpload}
+                  doImageUploadRequest={handleMediaUpload}
+                  doFileUploadRequest={handleMediaUpload}
                 />
               </Window>
             </div>
